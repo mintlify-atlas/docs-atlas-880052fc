@@ -1,0 +1,167 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "Spectral",
+  "projectDescription": "Prismatic's TypeScript SDK for building custom connectors and code-native integrations on the Prismatic embedded iPaaS platform.",
+  "theme": "palm",
+  "primaryColor": "#22a2a6",
+  "lightColor": "#232555",
+  "darkColor": "#0cc099",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Custom Connectors",
+            "pages": [
+              "custom-connectors/overview",
+              "custom-connectors/actions",
+              "custom-connectors/triggers",
+              "custom-connectors/data-sources",
+              "custom-connectors/connections",
+              "custom-connectors/inputs",
+              "custom-connectors/branching",
+              "custom-connectors/error-handling"
+            ]
+          },
+          {
+            "group": "Code-Native Integrations",
+            "pages": [
+              "code-native/overview",
+              "code-native/flows",
+              "code-native/config-wizard",
+              "code-native/connections",
+              "code-native/endpoint-config",
+              "code-native/existing-components"
+            ]
+          },
+          {
+            "group": "Testing",
+            "pages": [
+              "testing/overview",
+              "testing/unit-testing-actions",
+              "testing/unit-testing-triggers",
+              "testing/unit-testing-flows"
+            ]
+          },
+          {
+            "group": "Utilities",
+            "pages": [
+              "utilities/http-client",
+              "utilities/type-helpers",
+              "utilities/errors"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core Functions",
+            "pages": [
+              "api-reference/component",
+              "api-reference/action",
+              "api-reference/trigger",
+              "api-reference/polling-trigger",
+              "api-reference/data-source",
+              "api-reference/input",
+              "api-reference/connection",
+              "api-reference/oauth2-connection",
+              "api-reference/on-prem-connection"
+            ]
+          },
+          {
+            "group": "Code-Native Integration Functions",
+            "pages": [
+              "api-reference/integration",
+              "api-reference/flow",
+              "api-reference/config-page",
+              "api-reference/config-var",
+              "api-reference/connection-config-var",
+              "api-reference/data-source-config-var",
+              "api-reference/component-manifest"
+            ]
+          },
+          {
+            "group": "Testing Utilities",
+            "pages": [
+              "api-reference/testing/invoke",
+              "api-reference/testing/invoke-trigger",
+              "api-reference/testing/invoke-data-source",
+              "api-reference/testing/invoke-flow",
+              "api-reference/testing/create-harness",
+              "api-reference/testing/create-connection",
+              "api-reference/testing/logger-mock"
+            ]
+          },
+          {
+            "group": "Utility Module",
+            "pages": [
+              "api-reference/util/types",
+              "api-reference/util/http-client"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Type-safe custom connector authoring with actions, triggers, data sources, and connections",
+    "Code-native integration definitions with flows and config wizards",
+    "OAuth 2.0 and on-prem connection support",
+    "Built-in HTTP client with retry logic and automatic authorization",
+    "Testing utilities for unit testing actions, triggers, data sources, and flows",
+    "Comprehensive type coercion utilities (util.types)",
+    "Polling trigger support with scheduled execution",
+    "Branching and conditional logic in actions",
+    "Component manifest support for referencing existing Prismatic components"
+  ],
+  "publicApiSurface": [
+    "component(definition: ComponentDefinition)",
+    "action(definition: ActionDefinition)",
+    "trigger(definition: TriggerDefinition)",
+    "pollingTrigger(definition: PollingTriggerDefinition)",
+    "dataSource(definition: DataSourceDefinition)",
+    "input(definition: InputFieldDefinition)",
+    "connection(definition: DefaultConnectionDefinition)",
+    "oauth2Connection(definition: OAuth2ConnectionDefinition)",
+    "onPremConnection(definition: OnPremConnectionDefinition)",
+    "integration(definition: IntegrationDefinition)",
+    "flow(definition: Flow)",
+    "configPage(definition: ConfigPage)",
+    "configVar(definition: StandardConfigVar)",
+    "connectionConfigVar(definition: ConnectionConfigVar)",
+    "dataSourceConfigVar(definition: DataSourceConfigVar)",
+    "componentManifest(definition: ComponentManifest)",
+    "customerActivatedConnection(definition)",
+    "organizationActivatedConnection(definition)",
+    "util.types.toBool / isBool",
+    "util.types.toInt / isInt",
+    "util.types.toNumber / isNumber",
+    "util.types.toString / isString",
+    "util.types.toDate / isDate",
+    "util.types.toJSON / isJSON",
+    "util.types.toBufferDataPayload / isBufferDataPayload",
+    "util.types.keyValPairListToObject",
+    "util.types.isConnection",
+    "util.types.cleanObject",
+    "testing.invoke(action, params, context)",
+    "testing.invokeTrigger(trigger, context, payload, params)",
+    "testing.invokeDataSource(dataSource, params, context)",
+    "testing.invokeFlow(flow, options)",
+    "testing.createHarness(component)",
+    "testing.createConnection(definition, values)",
+    "testing.loggerMock()",
+    "SpectralError",
+    "ConnectionError"
+  ]
+}
