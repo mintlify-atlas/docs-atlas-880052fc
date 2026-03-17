@@ -1,0 +1,301 @@
+---
+title: trigger
+description: Define a trigger that starts a Prismatic integration flow in response to a webhook, schedule, or event.
+---
+
+The `trigger` function creates a trigger object that can be referenced by a custom component. Triggers are the entry point of an integration flow — they receive an inbound request or event and pass a payload to the flow's subsequent action steps.
+
+## Function signature
+
+```typescript
+function trigger<
+  TInputs extends Inputs,
+  TConfigVars extends ConfigVarResultCollection,
+  TAllowsBranching extends boolean,
+  TResult extends TriggerResult<TAllowsBranching, TriggerPayload>,
+>(
+  definition: TriggerDefinition<TInputs, TConfigVars, TAllowsBranching, TResult>
+): TriggerDefinition<TInputs, TConfigVars, TAllowsBranching, TResult>
+```
+
+## Parameters
+
+<ParamField path="definition" type="TriggerDefinition" required>
+  An object describing the trigger. See fields below.
+</ParamField>
+
+### `TriggerDefinition` fields
+
+<ParamField path="definition.display" type="ActionDisplayDefinition" required>
+  Controls how the trigger appears in the Prismatic UI.
+
+  <Expandable title="ActionDisplayDefinition fields">
+    <ParamField path="display.label" type="string" required>
+      Human-readable name shown in the flow editor.
+    </ParamField>
+    <ParamField path="display.description" type="string" required>
+      Describes what this trigger does.
+    </ParamField>
+    <ParamField path="display.directions" type="string">
+      Additional guidance shown to the integration builder.
+    </ParamField>
+    <ParamField path="display.important" type="boolean">
+      Highlights this trigger as commonly used. Use sparingly.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="definition.perform" type="TriggerPerformFunction" required>
+  The async function that runs when this trigger is invoked. Receives `context`, `payload`, and `params`.
+
+  ```typescript
+  perform: (
+    context: ActionContext<TConfigVars>,
+    payload: TriggerPayload,
+    params: ActionInputParameters<TInputs>
+  ) => Promise<TResult>
+  ```
+
+  <Expandable title="TriggerPayload fields">
+    <ParamField path="payload.headers" type="Record<string, string>">
+      HTTP headers from the webhook request.
+    </ParamField>
+    <ParamField path="payload.queryParameters" type="Record<string, string>">
+      Query string parameters from the webhook URL.
+    </ParamField>
+    <ParamField path="payload.rawBody" type="{ data: unknown; contentType?: string }">
+      The unparsed body of the webhook request.
+    </ParamField>
+    <ParamField path="payload.body" type="{ data: unknown; contentType?: string }">
+      The parsed body of the webhook request.
+    </ParamField>
+    <ParamField path="payload.pathFragment" type="string">
+      Extended path information appended to the webhook URL.
+    </ParamField>
+    <ParamField path="payload.webhookUrls" type="Record<string, string>">
+      Webhook URLs assigned to all flows of this instance.
+    </ParamField>
+    <ParamField path="payload.webhookApiKeys" type="Record<string, string[]>">
+      API keys assigned to flows of this instance.
+    </ParamField>
+    <ParamField path="payload.invokeUrl" type="string">
+      The URL that invoked this execution.
+    </ParamField>
+    <ParamField path="payload.executionId" type="string">
+      Unique ID for this execution.
+    </ParamField>
+    <ParamField path="payload.customer" type="CustomerAttributes">
+      Attributes of the customer: `id`, `name`, `externalId`.
+    </ParamField>
+    <ParamField path="payload.instance" type="InstanceAttributes">
+      Attributes of the instance: `id`, `name`.
+    </ParamField>
+    <ParamField path="payload.user" type="UserAttributes">
+      Attributes of the user for User Level Configurations: `id`, `name`, `email`, `externalId`.
+    </ParamField>
+    <ParamField path="payload.integration" type="IntegrationAttributes">
+      Attributes of the integration: `id`, `name`, `versionSequenceId`.
+    </ParamField>
+    <ParamField path="payload.flow" type="FlowAttributes">
+      Attributes of the flow: `id`, `name`.
+    </ParamField>
+    <ParamField path="payload.startedAt" type="string">
+      UTC timestamp when execution started.
+    </ParamField>
+    <ParamField path="payload.globalDebug" type="boolean">
+      Whether the execution is running in debug mode.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="definition.inputs" type="TInputs" required>
+  A record of input field definitions presented to the integration builder. See [`input`](/api-reference/input).
+</ParamField>
+
+<ParamField path="definition.scheduleSupport" type="'invalid' | 'valid' | 'required'" required>
+  Whether this trigger supports execution on a recurring schedule.
+  - `"invalid"` — schedule is not supported
+  - `"valid"` — schedule is optional
+  - `"required"` — schedule must be configured
+</ParamField>
+
+<ParamField path="definition.synchronousResponseSupport" type="'invalid' | 'valid' | 'required'" required>
+  Whether this trigger supports synchronous HTTP responses back to the caller.
+  - `"invalid"` — synchronous response is not supported
+  - `"valid"` — synchronous response is optional
+  - `"required"` — synchronous response must be configured
+</ParamField>
+
+<ParamField path="definition.onInstanceDeploy" type="TriggerEventFunction">
+  An async function called when an instance using this trigger is deployed. Use to register webhooks with external services.
+
+  ```typescript
+  onInstanceDeploy: (
+    context: ActionContext<TConfigVars>,
+    params: ActionInputParameters<TInputs>
+  ) => Promise<void>
+  ```
+</ParamField>
+
+<ParamField path="definition.onInstanceDelete" type="TriggerEventFunction">
+  An async function called when an instance using this trigger is deleted. Use to deregister webhooks from external services.
+</ParamField>
+
+<ParamField path="definition.webhookLifecycleHandlers" type="object">
+  Optional handlers for creating and deleting webhooks independently of instance deploy/delete lifecycle.
+
+  <Expandable title="webhookLifecycleHandlers fields">
+    <ParamField path="webhookLifecycleHandlers.create" type="TriggerEventFunction" required>
+      Function called to configure a webhook.
+    </ParamField>
+    <ParamField path="webhookLifecycleHandlers.delete" type="TriggerEventFunction" required>
+      Function called to tear down the webhook.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="definition.terminateExecution" type="boolean">
+  When `true`, terminates execution after the trigger runs.
+</ParamField>
+
+<ParamField path="definition.breakLoop" type="boolean">
+  When `true`, breaks out of the enclosing loop step.
+</ParamField>
+
+<ParamField path="definition.allowsBranching" type="boolean">
+  When `true`, this trigger supports conditional branching.
+</ParamField>
+
+<ParamField path="definition.staticBranchNames" type="string[]">
+  Static branch names when `allowsBranching` is `true`.
+</ParamField>
+
+<ParamField path="definition.dynamicBranchInput" type="string">
+  Key of the input field that determines branch names dynamically.
+</ParamField>
+
+<ParamField path="definition.examplePayload" type="Awaited<ReturnType<perform>>">
+  Example return value from `perform`, used to preview output shape in the UI.
+</ParamField>
+
+## Return type
+
+The `perform` function must return a `Promise` resolving to a `TriggerResult`:
+
+<ResponseField name="payload" type="TriggerPayload" required>
+  The trigger payload passed through to subsequent steps in the flow.
+</ResponseField>
+
+<ResponseField name="response" type="HttpResponse">
+  HTTP response to send back to the caller when `synchronousResponseSupport` is `"valid"` or `"required"`.
+</ResponseField>
+
+<ResponseField name="instanceState" type="Record<string, unknown>">
+  Values to persist in the flow-specific instance state.
+</ResponseField>
+
+<ResponseField name="crossFlowState" type="Record<string, unknown>">
+  Values to persist in the cross-flow state.
+</ResponseField>
+
+<ResponseField name="executionState" type="Record<string, unknown>">
+  Values to persist for the duration of the current execution.
+</ResponseField>
+
+<ResponseField name="integrationState" type="Record<string, unknown>">
+  Values to persist across all flows and versions of an integration instance.
+</ResponseField>
+
+<ResponseField name="branch" type="string">
+  Required when `allowsBranching` is `true`. The name of the branch to take.
+</ResponseField>
+
+<ResponseField name="polledNoChanges" type="boolean">
+  Set to `true` in a polling trigger result to indicate no new data was found.
+</ResponseField>
+
+<ResponseField name="failed" type="boolean">
+  Set by the platform to indicate whether the trigger failed.
+</ResponseField>
+
+<ResponseField name="error" type="Record<string, unknown>">
+  Set by the platform with error details when the trigger fails.
+</ResponseField>
+
+## Example
+
+```typescript
+import { trigger, input } from "@prismatic-io/spectral";
+
+export const webhookTrigger = trigger({
+  display: {
+    label: "Webhook",
+    description: "Trigger a flow when a webhook payload is received",
+  },
+  inputs: {
+    secret: input({
+      label: "Webhook Secret",
+      type: "password",
+      required: false,
+      comments: "Optional HMAC secret to verify webhook signatures",
+    }),
+  },
+  scheduleSupport: "invalid",
+  synchronousResponseSupport: "valid",
+  perform: async (context, payload, params) => {
+    // Optionally verify the webhook signature
+    if (params.secret) {
+      const signature = payload.headers["x-signature"];
+      verifySignature(payload.rawBody.data as Buffer, params.secret, signature);
+    }
+
+    return {
+      payload,
+      response: {
+        statusCode: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ received: true }),
+      },
+    };
+  },
+  onInstanceDeploy: async (context, params) => {
+    context.logger.info("Instance deployed — registering webhook with external service");
+    // Call external API to register the webhook URL
+  },
+  onInstanceDelete: async (context, params) => {
+    context.logger.info("Instance deleted — deregistering webhook");
+    // Call external API to remove the webhook registration
+  },
+  examplePayload: {
+    payload: {
+      headers: { "content-type": "application/json" },
+      body: { data: { event: "order.created", orderId: "ord_123" } },
+      rawBody: { data: Buffer.from("{}") },
+      queryParameters: {},
+      pathFragment: "",
+      webhookUrls: {},
+      webhookApiKeys: {},
+      invokeUrl: "https://hooks.prismatic.io/trigger/example",
+      executionId: "exec_abc",
+      customer: { id: "cust_1", name: "Acme Corp", externalId: "acme" },
+      instance: { id: "inst_1", name: "My Integration" },
+      user: { id: "", name: "", email: "", externalId: "" },
+      integration: { id: "int_1", name: "Order Sync", versionSequenceId: "1" },
+      flow: { id: "flow_1", name: "Main Flow" },
+      startedAt: "2026-01-01T00:00:00Z",
+      globalDebug: false,
+    },
+  },
+});
+
+function verifySignature(body: Buffer, secret: string, signature: string) {
+  // HMAC verification logic
+}
+```
+
+## Related
+
+- [`pollingTrigger`](/api-reference/polling-trigger) — Define a polling-based trigger
+- [`input`](/api-reference/input) — Define inputs for a trigger
+- [`component`](/api-reference/component) — Register triggers in a component
+- [`action`](/api-reference/action) — Define an action step

@@ -1,0 +1,372 @@
+---
+title: 'Connections'
+description: 'Define authentication schemes for your connector — API keys, username/password, OAuth 2.0, and on-prem tunnels.'
+---
+
+A connection defines how integration builders authenticate with a third-party service. Connections are attached to a component via the `connections` array in `component()` and are referenced by actions and triggers via a `connection` input.
+
+Spectral provides four functions for defining connections:
+
+| Function | Use case |
+|---|---|
+| `connection()` | API key, username/password, or any non-OAuth scheme |
+| `oauth2Connection()` | OAuth 2.0 (authorization code or client credentials) |
+| `onPremConnection()` | Connections that route through an on-prem agent |
+
+## Standard connections
+
+Use `connection()` for connections backed by static credentials such as API keys or username/password pairs.
+
+```typescript
+interface DefaultConnectionDefinition {
+  key: string;
+  display: ConnectionDisplayDefinition;
+  oauth2Type?: OAuth2Type; // omit for non-OAuth connections
+  inputs: {
+    [key: string]: ConnectionInput;
+  };
+}
+```
+
+`ConnectionDisplayDefinition` supports an optional `icons` object for customizing the appearance of the connection card:
+
+```typescript
+interface ConnectionDisplayDefinition {
+  label: string;
+  description: string;
+  icons?: {
+    /** Path to avatar icon shown on the connection card. */
+    avatarPath?: string;
+    /** Path to icon used for the OAuth "Connect" button. */
+    oauth2ConnectionIconPath?: string;
+  };
+}
+```
+
+### API key example
+
+```typescript
+import { connection } from "@prismatic-io/spectral";
+
+export const apiKeyConnection = connection({
+  key: "apiKey",
+  display: {
+    label: "My API — API Key",
+    description: "Authenticate with My API using a secret API key",
+  },
+  inputs: {
+    apiKey: {
+      label: "API Key",
+      type: "password",
+      required: true,
+      comments: "Your API key from the My API developer portal",
+      placeholder: "sk-live-...",
+    },
+    baseUrl: {
+      label: "Base URL",
+      type: "string",
+      required: false,
+      default: "https://api.example.com",
+      comments: "Override to point to a sandbox or self-hosted instance",
+    },
+  },
+});
+```
+
+### Username and password example
+
+```typescript
+export const basicAuthConnection = connection({
+  key: "basicAuth",
+  display: {
+    label: "My API — Username & Password",
+    description: "Authenticate with My API using a username and password",
+  },
+  inputs: {
+    username: {
+      label: "Username",
+      type: "string",
+      required: true,
+    },
+    password: {
+      label: "Password",
+      type: "password",
+      required: true,
+    },
+  },
+});
+```
+
+## ConnectionInput fields
+
+`ConnectionInput` is a subset of `InputFieldDefinition` with two additional fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | `"string"` \| `"data"` \| `"text"` \| `"password"` \| `"boolean"` | Input field type |
+| `label` | `string` | Display label |
+| `required` | `boolean` | Whether the field is required |
+| `default` | `string` | Default value |
+| `placeholder` | `string` | Placeholder text |
+| `comments` | `string` | Help text shown below the field |
+| `example` | `string` | Example value shown in the UI |
+| `shown` | `boolean` | Whether to show this field in the UI (default `true`) |
+| `writeOnly` | `true` | Mark the field as write-only (value is never read back) |
+
+## OAuth 2.0 connections
+
+Use `oauth2Connection()` for OAuth 2.0 flows. Prismatic handles the token exchange and refresh automatically.
+
+### OAuth2Type enum
+
+```typescript
+enum OAuth2Type {
+  ClientCredentials = "client_credentials",
+  AuthorizationCode = "authorization_code",
+}
+```
+
+<Tabs>
+  <Tab title="Authorization Code">
+    Authorization code flow redirects the user to the third-party login page to grant access.
+
+    ```typescript
+    import { oauth2Connection, OAuth2Type } from "@prismatic-io/spectral";
+
+    export const oauthConnection = oauth2Connection({
+      key: "oauth2",
+      display: {
+        label: "My API — OAuth 2.0",
+        description: "Authenticate with My API using OAuth 2.0",
+      },
+      oauth2Type: OAuth2Type.AuthorizationCode,
+      inputs: {
+        authorizeUrl: {
+          label: "Authorization URL",
+          type: "string",
+          default: "https://auth.example.com/oauth/authorize",
+          required: true,
+        },
+        tokenUrl: {
+          label: "Token URL",
+          type: "string",
+          default: "https://auth.example.com/oauth/token",
+          required: true,
+        },
+        scopes: {
+          label: "Scopes",
+          type: "string",
+          default: "read write",
+          required: true,
+        },
+        clientId: {
+          label: "Client ID",
+          type: "string",
+          required: true,
+        },
+        clientSecret: {
+          label: "Client Secret",
+          type: "password",
+          required: true,
+        },
+      },
+    });
+    ```
+  </Tab>
+  <Tab title="Client Credentials">
+    Client credentials flow exchanges a client ID and secret for an access token without user interaction.
+
+    ```typescript
+    import { oauth2Connection, OAuth2Type } from "@prismatic-io/spectral";
+
+    export const clientCredentialsConnection = oauth2Connection({
+      key: "oauth2ClientCredentials",
+      display: {
+        label: "My API — OAuth 2.0 Client Credentials",
+        description: "Authenticate with My API using the OAuth 2.0 client credentials flow",
+      },
+      oauth2Type: OAuth2Type.ClientCredentials,
+      inputs: {
+        tokenUrl: {
+          label: "Token URL",
+          type: "string",
+          default: "https://auth.example.com/oauth/token",
+          required: true,
+        },
+        scopes: {
+          label: "Scopes",
+          type: "string",
+          default: "api:read api:write",
+          required: true,
+        },
+        clientId: {
+          label: "Client ID",
+          type: "string",
+          required: true,
+        },
+        clientSecret: {
+          label: "Client Secret",
+          type: "password",
+          required: true,
+        },
+      },
+    });
+    ```
+  </Tab>
+</Tabs>
+
+### OAuth2UrlOverrides
+
+You can override the Prismatic OAuth 2.0 redirect URIs using `oauth2Config` on an authorization code connection:
+
+```typescript
+export const oauthWithCustomRedirect = oauth2Connection({
+  key: "oauth2CustomRedirect",
+  display: { label: "My API", description: "" },
+  oauth2Type: OAuth2Type.AuthorizationCode,
+  oauth2Config: {
+    oAuthSuccessRedirectUri: "https://app.example.com/oauth/success",
+    oAuthFailureRedirectUri: "https://app.example.com/oauth/failure",
+  },
+  inputs: { /* ... */ },
+});
+```
+
+### PKCE support
+
+To enable PKCE (Proof Key for Code Exchange) on an authorization code connection, set `oauth2PkceMethod`:
+
+```typescript
+import { oauth2Connection, OAuth2Type, OAuth2PkceMethod } from "@prismatic-io/spectral";
+
+export const pkceConnection = oauth2Connection({
+  key: "oauth2Pkce",
+  display: { label: "My API — OAuth 2.0 with PKCE", description: "" },
+  oauth2Type: OAuth2Type.AuthorizationCode,
+  oauth2PkceMethod: OAuth2PkceMethod.S256, // or OAuth2PkceMethod.Plain
+  inputs: { /* ... */ },
+});
+```
+
+`OAuth2PkceMethod` has two values:
+
+| Value | Description |
+|---|---|
+| `OAuth2PkceMethod.S256` | SHA-256 challenge method (recommended) |
+| `OAuth2PkceMethod.Plain` | Plain text challenge method |
+
+## On-prem connections
+
+Use `onPremConnection()` when the third-party service runs inside a customer's private network. Prismatic replaces the `host` and `port` values with a local tunnel endpoint when the on-prem agent is active.
+
+```typescript
+interface OnPremConnectionDefinition {
+  key: string;
+  display: ConnectionDisplayDefinition;
+  inputs: {
+    host: OnPremConnectionInput; // Required
+    port: OnPremConnectionInput; // Required
+    [key: string]: ConnectionInput;
+  };
+}
+
+// OnPremConnectionInput must include onPremControlled: true
+type OnPremConnectionInput = { onPremControlled: true } & ConnectionInput;
+```
+
+```typescript
+import { onPremConnection } from "@prismatic-io/spectral";
+
+export const databaseConnection = onPremConnection({
+  key: "onPremDatabase",
+  display: {
+    label: "On-Prem Database",
+    description: "Connect to a database inside the customer's network",
+  },
+  inputs: {
+    host: {
+      label: "Host",
+      type: "string",
+      required: true,
+      onPremControlled: true,
+      comments: "Database hostname (overridden by on-prem agent)",
+    },
+    port: {
+      label: "Port",
+      type: "string",
+      required: true,
+      onPremControlled: true,
+      default: "5432",
+    },
+    username: {
+      label: "Username",
+      type: "string",
+      required: true,
+    },
+    password: {
+      label: "Password",
+      type: "password",
+      required: true,
+    },
+    database: {
+      label: "Database Name",
+      type: "string",
+      required: true,
+    },
+  },
+});
+```
+
+## templateConnectionInputs helper
+
+`templateConnectionInputs()` merges your custom inputs with template (hidden) inputs that are computed from other field values. This is useful for constructing a full URL from a base URL template without exposing the computed value to users:
+
+```typescript
+import { connection, templateConnectionInputs } from "@prismatic-io/spectral";
+
+export const templatedConnection = connection({
+  key: "templated",
+  display: { label: "My API", description: "" },
+  inputs: templateConnectionInputs(
+    {
+      subdomain: {
+        label: "Subdomain",
+        type: "string",
+        required: true,
+        placeholder: "my-company",
+      },
+    },
+    {
+      baseUrl: {
+        label: "Base URL",
+        type: "template",
+        // Constructs the URL from the subdomain input
+        templateValue: "https://{{subdomain}}.example.com/api",
+      },
+    }
+  ),
+});
+```
+
+## Reading connection values in actions
+
+When a user configures a connection, the field values are available via the `connection` input parameter in the action's `perform` function:
+
+```typescript
+perform: async (context, params) => {
+  const { connection } = params;
+
+  // Static credential fields
+  const apiKey = connection.fields.apiKey as string;
+
+  // OAuth 2.0 access token (managed by Prismatic)
+  const accessToken = connection.token?.access_token as string;
+
+  // OAuth 2.0 token metadata
+  const tokenExpiry = connection.context?.expires_at;
+}
+```
+
+<Warning>
+Never log connection field values. The `password` type is masked in the Prismatic UI but the raw value is accessible in the perform function. Use `context.logger` only for non-sensitive metadata.
+</Warning>

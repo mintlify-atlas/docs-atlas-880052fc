@@ -1,0 +1,247 @@
+---
+title: Testing overview
+description: Unit test custom components and code-native integration flows using the testing utilities exported from @prismatic-io/spectral.
+---
+
+The `@prismatic-io/spectral` package exports a `testing` module with utilities for writing unit tests against your custom component actions, triggers, data sources, and code-native integration flows. Tests run in any Jest-compatible environment, including [Vitest](https://vitest.dev/).
+
+## Two testing approaches
+
+Spectral provides two complementary APIs for testing:
+
+| API | Best for |
+|-----|----------|
+| Standalone `invoke*` functions | Testing individual action, trigger, or data source definitions directly |
+| `createHarness()` | Testing a complete assembled component with multiple actions, triggers, and data sources |
+
+Both approaches automatically create a mock action context (including a mock logger) so you do not need to construct one yourself.
+
+## Setting up your test environment
+
+<Steps>
+  <Step title="Install a test runner">
+    Spectral's testing utilities are compatible with any Jest-compatible runner. Vitest is recommended for new projects.
+
+    <Tabs>
+      <Tab title="Vitest">
+        ```bash
+        npm install --save-dev vitest
+        ```
+
+        Add a test script to your `package.json`:
+
+        ```json package.json
+        {
+          "scripts": {
+            "test": "vitest run"
+          }
+        }
+        ```
+      </Tab>
+      <Tab title="Jest">
+        ```bash
+        npm install --save-dev jest ts-jest @types/jest
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Import testing utilities">
+    Import the testing helpers you need from the `testing` sub-module:
+
+    ```typescript my-component.test.ts
+    import { describe, expect, it } from "vitest";
+    import {
+      invoke,
+      invokeTrigger,
+      invokeDataSource,
+      invokeFlow,
+      createHarness,
+      createConnection,
+      connectionValue,
+      loggerMock,
+      createMockContextComponents,
+    } from "@prismatic-io/spectral/dist/testing";
+    ```
+  </Step>
+
+  <Step title="Write your first test">
+    Call `invoke()` with your action definition and input parameters:
+
+    ```typescript my-action.test.ts
+    import { describe, expect, it } from "vitest";
+    import { invoke } from "@prismatic-io/spectral/dist/testing";
+    import { myAction } from "./src/actions";
+
+    describe("myAction", () => {
+      it("returns expected data", async () => {
+        const { result } = await invoke(myAction, {
+          myInput: "hello",
+        });
+        expect(result.data).toBe("hello");
+      });
+    });
+    ```
+  </Step>
+</Steps>
+
+## Core testing functions
+
+### `invoke(action, params, context?)`
+
+Invokes an `ActionDefinition`'s `perform` function directly. Returns `{ result, loggerMock }`.
+
+```typescript
+import { invoke } from "@prismatic-io/spectral/dist/testing";
+
+const { result, loggerMock } = await invoke(myAction, {
+  username: "alice",
+  password: "secret",
+});
+```
+
+See [Unit testing actions](/testing/unit-testing-actions) for full details.
+
+### `invokeTrigger(trigger, context?, payload?, params?)`
+
+Invokes a `TriggerDefinition`'s `perform` function. Automatically merges a default trigger payload so you only need to supply fields you care about.
+
+```typescript
+import { invokeTrigger } from "@prismatic-io/spectral/dist/testing";
+
+const { result } = await invokeTrigger(myTrigger, undefined, {
+  body: { data: { event: "order.created" } },
+});
+```
+
+See [Unit testing triggers](/testing/unit-testing-triggers) for full details.
+
+### `invokeDataSource(dataSource, params, context?)`
+
+Invokes a `DataSourceDefinition`'s `perform` function and returns its result directly.
+
+```typescript
+import { invokeDataSource } from "@prismatic-io/spectral/dist/testing";
+
+const result = await invokeDataSource(myDataSource, {});
+expect(result.result).toStrictEqual("Hello");
+```
+
+### `invokeFlow(flow, options?)`
+
+Invokes a code-native integration `Flow`, running both the trigger (`onTrigger`) and execution (`onExecution`) functions. Accepts `configVars`, `context`, and `payload` options.
+
+```typescript
+import { invokeFlow } from "@prismatic-io/spectral/dist/testing";
+
+const { result } = await invokeFlow(myFlow, {
+  configVars: { "API Key": "test-key" },
+  payload: { body: { data: { orderId: 42 } } },
+});
+```
+
+See [Unit testing flows](/testing/unit-testing-flows) for full details.
+
+### `createHarness(component)`
+
+Wraps a complete `Component` definition in a `ComponentTestHarness` that provides `.action()`, `.trigger()`, `.dataSource()`, and `.connectionValue()` methods. Input defaults and `clean` functions are applied automatically.
+
+```typescript
+import { createHarness } from "@prismatic-io/spectral/dist/testing";
+import myComponent from "./src";
+
+const harness = createHarness(myComponent);
+
+const result = await harness.action("myAction", {
+  fooInput: "hello",
+});
+```
+
+## Connection helpers
+
+### `createConnection(definition, values, tokenValues?, displayName?)`
+
+Builds a `ConnectionValue` from a connection definition and plain field values, suitable for passing as an action parameter in tests.
+
+```typescript
+import { createConnection } from "@prismatic-io/spectral/dist/testing";
+import { myConnection } from "./src/connections";
+
+const conn = createConnection(myConnection, {
+  username: "alice",
+  password: "secret",
+});
+```
+
+### `connectionValue(envVarKey?)`
+
+Reads a `ConnectionValue` from an environment variable (defaults to `PRISMATIC_CONNECTION_VALUE`). Useful for CI pipelines where credentials should not be committed to source.
+
+```typescript
+import { connectionValue } from "@prismatic-io/spectral/dist/testing";
+
+// Reads process.env.PRISMATIC_CONNECTION_VALUE
+const conn = connectionValue();
+
+// Or use a custom variable name
+const conn2 = connectionValue("MY_CUSTOM_CONNECTION_VAR");
+```
+
+<Warning>
+  `connectionValue()` throws if the environment variable is not set. Export your connection JSON before running tests that depend on it.
+</Warning>
+
+## `loggerMock()`
+
+Creates a mock `ActionLogger` where each log method (`trace`, `debug`, `info`, `log`, `warn`, `error`) is a spy. The mock logger is automatically attached to any context created by `invoke*` functions and is also returned in the `InvokeReturn` object so you can assert on it directly.
+
+```typescript
+import { loggerMock } from "@prismatic-io/spectral/dist/testing";
+
+const logger = loggerMock();
+// Each method is a spy — use expect(logger.info).toHaveBeenCalledWith(...)
+```
+
+When using `invoke()` or `invokeTrigger()`, the logger mock is returned alongside the result:
+
+```typescript
+const { result, loggerMock: logger } = await invoke(myAction, { input: "value" });
+expect(logger.info).toHaveBeenCalledWith("Processing input: value");
+```
+
+## `createMockContextComponents(registry, mocks?)`
+
+Generates a mock `context.components` object from a CNI component manifest registry. By default it returns each action's `examplePayload`. Pass `mocks.actions` to override specific actions with custom implementations.
+
+```typescript
+import { createMockContextComponents } from "@prismatic-io/spectral/dist/testing";
+import { componentRegistry } from "./src/componentRegistry";
+
+const components = createMockContextComponents(componentRegistry, {
+  actions: {
+    myComponent: {
+      myAction: () => Promise.resolve({ data: "mocked response" }),
+    },
+  },
+});
+
+const { result } = await invokeFlow(myFlow, {
+  context: { components },
+});
+```
+
+See [Unit testing flows](/testing/unit-testing-flows) for a complete example.
+
+## Related pages
+
+<CardGroup cols={3}>
+  <Card title="Unit testing actions" icon="bolt" href="/testing/unit-testing-actions">
+    Test action `perform` functions with `invoke()` or the harness `.action()` method.
+  </Card>
+  <Card title="Unit testing triggers" icon="webhook" href="/testing/unit-testing-triggers">
+    Test trigger `perform`, `onInstanceDeploy`, and `onInstanceDelete` with `invokeTrigger()`.
+  </Card>
+  <Card title="Unit testing flows" icon="diagram-project" href="/testing/unit-testing-flows">
+    Test code-native integration flows end-to-end with `invokeFlow()`.
+  </Card>
+</CardGroup>

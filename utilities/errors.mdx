@@ -1,0 +1,166 @@
+---
+title: Errors
+description: Use SpectralError and ConnectionError to surface structured, identifiable errors from custom connectors.
+---
+
+The Spectral SDK provides two error classes — `SpectralError` and `ConnectionError` — and corresponding type guards that let you differentiate Spectral-originated errors from generic JavaScript errors in error handlers.
+
+```typescript
+import { SpectralError, ConnectionError, isSpectralError, isConnectionError } from "@prismatic-io/spectral";
+```
+
+## `SpectralError`
+
+A base error class that extends the built-in `Error`. All `SpectralError` instances carry an `isSpectralError: true` flag, which allows the `isSpectralError` type guard to identify them reliably — even when errors cross module boundaries or are serialized.
+
+```typescript
+export class SpectralError extends Error {
+  isSpectralError: boolean; // always true
+
+  constructor(message: string) {
+    super(message);
+    this.isSpectralError = true;
+    this.name = this.constructor.name; // "SpectralError" or subclass name
+    Error.captureStackTrace(this, this.constructor);
+  }
+}
+```
+
+### Usage
+
+```typescript
+throw new SpectralError("Something went wrong in the connector");
+```
+
+## `ConnectionError`
+
+Extends `SpectralError` and attaches the `Connection` object that caused the failure. This makes it possible for error handlers to inspect and log which connection was at fault without needing to carry that information in the message string.
+
+```typescript
+export class ConnectionError extends SpectralError {
+  connection: Connection;
+
+  constructor(connection: Connection, message: string) {
+    super(message);
+    this.connection = connection;
+  }
+}
+```
+
+<ParamField path="connection" type="Connection" required>
+  The Spectral `Connection` object associated with the failure.
+</ParamField>
+
+<ParamField path="message" type="string" required>
+  A human-readable description of the error.
+</ParamField>
+
+### Usage
+
+Throw a `ConnectionError` inside an action's `perform` function when a connection fails an authentication or reachability check:
+
+```typescript
+import { action, ConnectionError } from "@prismatic-io/spectral";
+import { createClient, toAuthorizationHeaders } from "@prismatic-io/spectral/dist/clients/http";
+
+export const listUsers = action({
+  display: { label: "List users", description: "Return all users" },
+  inputs: {
+    connection: { label: "Connection", type: "connection", required: true },
+  },
+  perform: async (context, { connection }) => {
+    const client = createClient({
+      baseUrl: "https://api.acme.com/v2/",
+      headers: toAuthorizationHeaders(connection),
+    });
+
+    try {
+      const { data } = await client.get("/users");
+      return { data };
+    } catch (error: unknown) {
+      if ((error as any)?.response?.status === 401) {
+        throw new ConnectionError(
+          connection,
+          "Authentication failed. Verify your API credentials are correct.",
+        );
+      }
+      throw error;
+    }
+  },
+});
+```
+
+<Note>
+  `ConnectionError` stores the full `Connection` object on `error.connection`. Avoid logging the full object to prevent leaking credentials — log only `error.connection.key` or `error.connection.label`.
+</Note>
+
+## `isSpectralError(payload)`
+
+A type guard that returns `true` when `payload` is a `SpectralError` (or any subclass, including `ConnectionError`).
+
+```typescript
+export const isSpectralError = (payload: unknown): payload is SpectralError =>
+  Boolean(
+    payload &&
+      typeof payload === "object" &&
+      "isSpectralError" in payload &&
+      (payload as SpectralError).isSpectralError === true,
+  );
+```
+
+### Usage in an error handler
+
+```typescript
+import { isSpectralError } from "@prismatic-io/spectral";
+
+const errorHandler = (error: unknown): string => {
+  if (isSpectralError(error)) {
+    // error is narrowed to SpectralError here
+    return `Connector error: ${error.message}`;
+  }
+  return `Unexpected error: ${String(error)}`;
+};
+```
+
+## `isConnectionError(payload)`
+
+A type guard that returns `true` when `payload` is a `ConnectionError`. It first checks `isSpectralError`, then checks that a `connection` property is present.
+
+```typescript
+export const isConnectionError = (payload: unknown): payload is ConnectionError =>
+  isSpectralError(payload) && "connection" in payload;
+```
+
+### Usage in an error handler
+
+```typescript
+import { isSpectralError, isConnectionError } from "@prismatic-io/spectral";
+
+const errorHandler = (error: unknown): string => {
+  if (isConnectionError(error)) {
+    // error is narrowed to ConnectionError here
+    return `Connection '${error.connection.key}' failed: ${error.message}`;
+  }
+
+  if (isSpectralError(error)) {
+    return `Connector error: ${error.message}`;
+  }
+
+  return `Unexpected error: ${String(error)}`;
+};
+```
+
+## When to use each class
+
+<Columns cols={2}>
+  <Card title="SpectralError" icon="circle-exclamation">
+    Use for general connector errors that are not tied to a specific connection — for example, a missing required input, a failed data transformation, or an unsupported operation.
+  </Card>
+  <Card title="ConnectionError" icon="plug-circle-xmark">
+    Use when a request fails because a connection is invalid, expired, or misconfigured. Attaching the connection lets downstream error handlers surface the exact credential that needs attention.
+  </Card>
+</Columns>
+
+<Warning>
+  Always throw a `ConnectionError` (not a plain `Error`) for authentication failures. This allows Prismatic's platform to surface actionable connection re-authorization prompts to end users.
+</Warning>

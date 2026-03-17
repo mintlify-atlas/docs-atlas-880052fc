@@ -1,0 +1,504 @@
+---
+title: Type helpers
+description: Coerce, validate, and transform values with the util.types helpers included in the Spectral SDK.
+---
+
+The `util.types` namespace provides functions for checking and coercing values to specific types. They are especially useful in action `perform` functions where input values arrive as `unknown`.
+
+```typescript
+import util from "@prismatic-io/spectral";
+
+// Check
+util.types.isBool(value);
+
+// Coerce
+util.types.toBool(value);
+```
+
+## Boolean
+
+### `isBool(value)`
+
+Returns `true` if `value` is strictly `true` or `false`.
+
+```typescript
+util.types.isBool(false);   // true
+util.types.isBool("Hello"); // false
+```
+
+### `toBool(value, defaultValue?)`
+
+Converts truthy and falsy string/boolean values to a `boolean`. The check is case-insensitive.
+
+| Input | Result |
+|---|---|
+| `true`, `"t"`, `"true"`, `"y"`, `"yes"` | `true` |
+| `false`, `"f"`, `"false"`, `"n"`, `"no"` | `false` |
+| `undefined` or `""` | `defaultValue` (or `false` if omitted) |
+
+```typescript
+util.types.toBool("yes");          // true
+util.types.toBool("T");            // true
+util.types.toBool("no");           // false
+util.types.toBool("", true);       // true  (default applied)
+util.types.toBool(undefined);      // false
+```
+
+## Integer
+
+### `isInt(value)`
+
+Returns `true` only when `value` is an integer (not a float, not a numeric string).
+
+```typescript
+util.types.isInt(5);     // true
+util.types.isInt("5");   // false
+util.types.isInt(5.5);   // false
+```
+
+### `toInt(value, defaultValue?)`
+
+Converts a number or numeric string to an integer, truncating any fractional part.
+
+```typescript
+util.types.toInt(5.5);      // 5
+util.types.toInt("20.3");   // 20
+util.types.toInt("", 1);    // 1  (default applied)
+util.types.toInt(undefined); // 0
+// Throws if value cannot be coerced:
+util.types.toInt("abc");    // Error: Value 'abc' cannot be coerced to int.
+```
+
+## Number
+
+### `isNumber(value)`
+
+Returns `true` when `value` can be coerced to a finite number.
+
+```typescript
+util.types.isNumber(3.21);     // true
+util.types.isNumber("5.5");    // true
+util.types.isNumber("Hello"); // false
+```
+
+### `toNumber(value, defaultValue?)`
+
+Coerces a value to a `number`. Returns `defaultValue` (or `0`) for `undefined`, `null`, or `""`.
+
+```typescript
+util.types.toNumber("3.22");        // 3.22
+util.types.toNumber("", 5.5);       // 5.5
+util.types.toNumber(null, 5.5);     // 5.5
+util.types.toNumber(undefined);     // 0
+// Throws if value cannot be coerced:
+util.types.toNumber("Hello");       // Error: Value 'Hello' cannot be coerced to a number.
+```
+
+## BigInt
+
+### `isBigInt(value)`
+
+Returns `true` if `value` is of type `bigint`.
+
+```typescript
+util.types.isBigInt(3n);   // true
+util.types.isBigInt(3);    // false
+```
+
+### `toBigInt(value)`
+
+Coerces an integer, integer string, bigint, or boolean to a `bigint`.
+
+```typescript
+util.types.toBigInt(3);       // 3n
+util.types.toBigInt("-5");    // -5n
+util.types.toBigInt(true);    // 1n
+util.types.toBigInt(false);   // 0n
+// Throws for floats:
+util.types.toBigInt("5.5");   // Error: Value '5.5' cannot be coerced to bigint.
+```
+
+## Date
+
+### `isDate(value)`
+
+Returns `true` if `value` is a JavaScript `Date` object.
+
+```typescript
+util.types.isDate(new Date()); // true
+util.types.isDate("2021-03-20"); // false
+```
+
+### `toDate(value)`
+
+Parses an ISO 8601 date string or a UNIX epoch timestamp (seconds) into a `Date` object.
+
+```typescript
+util.types.toDate(new Date("1995-12-17T03:24:00"));
+// => Date('1995-12-17T09:24:00.000Z')
+
+util.types.toDate("2021-03-20");
+// => Date('2021-03-20T05:00:00.000Z')
+
+util.types.toDate(1616198400);
+// => Date('2021-03-20T00:00:00.000Z')
+
+// Throws if value is not a valid date:
+util.types.toDate("not-a-date"); // Error: Value 'not-a-date' cannot be coerced to date.
+```
+
+## URL
+
+### `isUrl(value)`
+
+Returns `true` if `value` is a syntactically valid URL. Does not verify network reachability.
+
+```typescript
+util.types.isUrl("https://prismatic.io");   // true
+util.types.isUrl("https:://prismatic.io"); // false (extra ":")
+```
+
+## String
+
+### `isString(value)`
+
+Returns `true` for primitive strings and `String` object instances.
+
+```typescript
+util.types.isString("value");            // true
+util.types.isString(new String("value")); // true
+util.types.isString(["value"]);          // false
+util.types.isString(4);                  // false
+```
+
+### `toString(value, defaultValue?)`
+
+Converts any value to a string via template literal coercion. Returns `defaultValue` (or `""`) for `undefined`.
+
+```typescript
+util.types.toString("Hello");            // "Hello"
+util.types.toString(5.5);               // "5.5"
+util.types.toString("", "Some default"); // "Some default"
+util.types.toString(undefined);          // ""
+```
+
+## JSON
+
+### `isJSON(value)`
+
+Returns `true` if `value` is a string that parses as valid JSON. Numbers and booleans encoded as strings are also considered valid.
+
+```typescript
+util.types.isJSON("");                             // false
+util.types.isJSON("5");                            // true
+util.types.isJSON('{"name":"John","age":30}');     // true
+util.types.isJSON("someString");                   // false
+```
+
+### `toJSON(value, prettyPrint?, retainKeyOrder?)`
+
+Safely serializes any value to a JSON string. Circular references are silently dropped.
+
+<ParamField path="value" type="unknown">
+  The value to serialize.
+</ParamField>
+
+<ParamField path="prettyPrint" type="boolean" default="true">
+  When `true`, produces indented JSON with 2-space indentation. When `false`, produces compact JSON.
+</ParamField>
+
+<ParamField path="retainKeyOrder" type="boolean" default="false">
+  When `false` (default), keys are sorted alphabetically. When `true`, keys preserve insertion order.
+</ParamField>
+
+```typescript
+const payload = { foo: "bar", baz: "buz" };
+
+util.types.toJSON(payload);
+// '{\n  "baz": "buz",\n  "foo": "bar"\n}'
+
+util.types.toJSON(payload, true, true);
+// '{\n  "foo": "bar",\n  "baz": "buz"\n}'
+
+util.types.toJSON(payload, false, true);
+// '{"foo":"bar","baz":"buz"}'
+
+// Circular references are dropped:
+const value: Record<string, unknown> = {};
+value.value = value;
+util.types.toJSON(value);
+// '{}'
+```
+
+<Tip>
+  `toJSON` is safe to use in log statements — it handles objects with circular references or function properties that would cause `JSON.stringify` to throw.
+</Tip>
+
+## Buffer / data payload
+
+### `isBufferDataPayload(value)`
+
+Returns `true` if `value` is an object with a `data` property that is a `Buffer`.
+
+```typescript
+util.types.isBufferDataPayload({ data: Buffer.from("hello"), contentType: "text/plain" });
+// true
+
+util.types.isBufferDataPayload({ data: "hello" });
+// false — data must be a Buffer
+```
+
+### `toBufferDataPayload(value)`
+
+Converts strings, Buffers, `Uint8Array`s, and objects to a `DataPayload` — an object with `data` (`Buffer`) and `contentType` (`string`) fields.
+
+| Input type | `contentType` |
+|---|---|
+| `string` | `"text/plain"` |
+| `Buffer` | `"application/octet-stream"` |
+| `Uint8Array` | `"application/octet-stream"` |
+| `object` / `Array` | `"application/json"` |
+| Existing `DataPayload` | preserved as-is |
+
+```typescript
+const { data, contentType } = util.types.toBufferDataPayload("hello world");
+// data    => Buffer containing "hello world"
+// contentType => "text/plain"
+
+const { data: jsonData, contentType: jsonType } =
+  util.types.toBufferDataPayload({ foo: "bar" });
+// jsonData    => Buffer containing '{"foo":"bar"}'
+// jsonType    => "application/json"
+```
+
+### `isData(value)` / `toData(value)` <Badge color="yellow">Deprecated</Badge>
+
+Aliases for `isBufferDataPayload` and `toBufferDataPayload`. Use the non-deprecated versions in new code.
+
+## Key-value pairs
+
+### `keyValPairListToObject(kvpList, valueConverter?)`
+
+Transforms an array of `{ key, value }` pairs (as produced by a Spectral key-value list input) into a plain object.
+
+<ParamField path="kvpList" type="KeyValuePair<unknown>[]">
+  An array of objects, each with `key` (string) and `value` properties.
+</ParamField>
+
+<ParamField path="valueConverter" type="(value: unknown) => TValue">
+  Optional function applied to each `value` before it is added to the result object.
+</ParamField>
+
+```typescript
+const kvList = [
+  { key: "foo", value: "bar" },
+  { key: "myKey", value: "myValue" },
+];
+
+util.types.keyValPairListToObject(kvList);
+// { foo: "bar", myKey: "myValue" }
+
+// With a value converter:
+util.types.keyValPairListToObject(kvList, (v) => String(v).toUpperCase());
+// { foo: "BAR", myKey: "MYVALUE" }
+
+// Handles undefined/null/empty gracefully:
+util.types.keyValPairListToObject(undefined as any);
+// {}
+```
+
+## Connection
+
+### `isConnection(value)`
+
+Returns `true` if `value` has the shape of a Spectral connection definition — a `key`, `label`, and an `inputs` object. For OAuth 2.0 connections it also validates required OAuth fields.
+
+```typescript
+util.types.isConnection({
+  key: "myConnection",
+  label: "My Connection",
+  inputs: { apiUrl: "https://api.example.com" },
+}); // true
+
+util.types.isConnection("not-a-connection"); // false
+```
+
+## Element
+
+### `isElement(value)`
+
+Returns `true` if `value` is an object with a truthy `key` property. An optional `label` property is allowed.
+
+```typescript
+util.types.isElement({ key: "foo" });              // true
+util.types.isElement({ key: "foo", label: "Foo" }); // true
+util.types.isElement({ label: "Foo" });             // false — missing key
+```
+
+## Object selection and field maps
+
+<Tabs>
+  <Tab title="ObjectSelection">
+
+### `isObjectSelection(value)`
+
+Returns `true` if `value` is an array where every item has a truthy `object` property. Also accepts a JSON string.
+
+```typescript
+util.types.isObjectSelection([{ object: "foo" }]); // true
+util.types.isObjectSelection('[{"object":"foo"}]'); // true — parsed from JSON
+util.types.isObjectSelection([{ missingObject: "foo" }]); // false
+```
+
+### `toObjectSelection(value)`
+
+Coerces `value` to an `ObjectSelection` array or throws.
+
+```typescript
+util.types.toObjectSelection([{ object: "foo" }]);
+// [{ object: "foo" }]
+
+util.types.toObjectSelection('[{"object":"foo"}]');
+// [{ object: "foo" }]
+
+// Throws:
+util.types.toObjectSelection([{ missingObject: "foo" }]);
+// Error: Value ... cannot be coerced to ObjectSelection.
+```
+
+  </Tab>
+  <Tab title="ObjectFieldMap">
+
+### `isObjectFieldMap(value)`
+
+Returns `true` if `value` is an object with a `fields` array where every item has a `field` property that satisfies `isElement`. Also accepts a JSON string.
+
+```typescript
+util.types.isObjectFieldMap({ fields: [{ field: { key: "foo" } }] }); // true
+util.types.isObjectFieldMap({ fields: [{ field: { key: "foo", label: "Foo" } }] }); // true
+util.types.isObjectFieldMap({ fields: [{ missingField: { key: "foo" } }] }); // false
+```
+
+### `toObjectFieldMap(value)`
+
+Coerces `value` to an `ObjectFieldMap` or throws.
+
+```typescript
+util.types.toObjectFieldMap({ fields: [{ field: { key: "id", label: "ID" } }] });
+// { fields: [{ field: { key: "id", label: "ID" } }] }
+
+// Throws:
+util.types.toObjectFieldMap({ missingFields: [] });
+// Error: Value ... cannot be coerced to ObjectFieldMap.
+```
+
+  </Tab>
+  <Tab title="JSONForm">
+
+### `isJSONForm(value)`
+
+Returns `true` if `value` has truthy `schema`, `uiSchema`, and `data` properties. Also accepts a JSON string.
+
+```typescript
+util.types.isJSONForm({ schema: {}, uiSchema: {}, data: {} }); // true
+util.types.isJSONForm({ schema: {}, uiSchema: {} }); // false — missing data
+```
+
+### `toJSONForm(value)`
+
+Coerces `value` to a `JSONForm` or throws.
+
+```typescript
+util.types.toJSONForm({ schema: {}, uiSchema: {}, data: {} });
+// { schema: {}, uiSchema: {}, data: {} }
+
+// Throws:
+util.types.toJSONForm({ schema: {}, uiSchema: {} });
+// Error: Value ... cannot be coerced to JSONForm.
+```
+
+  </Tab>
+</Tabs>
+
+## Picklist and schedule
+
+### `isPicklist(value)`
+
+Returns `true` if `value` is an array where every item is a string (or `String` object) or an `Element`.
+
+```typescript
+util.types.isPicklist(["value", new String("value")]); // true
+util.types.isPicklist([{ key: "foo" }, { key: "bar", label: "Bar" }]); // true
+util.types.isPicklist(["value", 4]); // false — mixed types
+util.types.isPicklist("value"); // false — not an array
+```
+
+### `isSchedule(value)`
+
+Returns `true` if `value` is an object with a truthy `value` property (representing a cron expression).
+
+```typescript
+util.types.isSchedule({ value: "00 00 * * 2,3" }); // true
+util.types.isSchedule({
+  value: "00 00 * * 2,3",
+  scheduleType: "week",
+  timeZone: "America/Chicago",
+}); // true
+util.types.isSchedule({ missingValue: "00 00 * * 2,3" }); // false
+```
+
+## Object utilities
+
+### `cleanObject(obj, predicate?)`
+
+Removes properties from an object that match a predicate. By default removes `undefined`, `null`, and `""` values.
+
+<ParamField path="obj" type="Record<string, unknown>">
+  The object to clean.
+</ParamField>
+
+<ParamField path="predicate" type="(v: any) => boolean">
+  Optional function that returns `true` for properties to remove. Defaults to removing `undefined`, `null`, and `""` values.
+</ParamField>
+
+```typescript
+util.types.cleanObject({
+  foo: "bar",
+  bar: undefined,
+  baz: null,
+  buz: false,
+  biz: "",
+});
+// { foo: "bar", buz: false }
+
+// Custom predicate — remove even numbers:
+util.types.cleanObject(
+  { foo: 1, bar: 2, baz: 3 },
+  (v) => v % 2 === 0,
+);
+// { foo: 1, baz: 3 }
+```
+
+### `lowerCaseHeaders(headers)`
+
+Lowercases all header keys in an object, preserving their values.
+
+```typescript
+util.types.lowerCaseHeaders({ "Content-Type": "Application/JSON" });
+// { "content-type": "Application/JSON" }
+
+util.types.lowerCaseHeaders({ "Cache-Control": "max-age=604800" });
+// { "cache-control": "max-age=604800" }
+```
+
+### `toObject(value)`
+
+Parses a JSON string into an object, or returns the value as-is if it is already an object.
+
+```typescript
+util.types.toObject('{"foo":"bar","baz":123}');
+// { foo: "bar", baz: 123 }
+
+util.types.toObject({ foo: "bar", baz: 123 });
+// { foo: "bar", baz: 123 }
+```

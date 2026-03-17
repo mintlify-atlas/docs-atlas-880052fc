@@ -1,0 +1,184 @@
+---
+title: 'Custom connectors'
+description: 'Build reusable, typed connectors that integrate third-party APIs with Prismatic using the Spectral SDK.'
+---
+
+A custom connector (called a **component** in Prismatic) is a self-contained package of actions, triggers, data sources, and connections that you publish to Prismatic and use inside low-code integrations or code-native integrations.
+
+Connectors are written in TypeScript using the **Spectral SDK** (`@prismatic-io/spectral`). Each connector is defined by calling `component()`, which accepts a `ComponentDefinition` object.
+
+## ComponentDefinition shape
+
+The full type from `ComponentDefinition.ts`:
+
+```typescript
+type ComponentDefinition<TPublic extends boolean, TKey extends string> = {
+  /** Unique programmatic key for this component. */
+  key: TKey;
+  /** Whether this component is available to all orgs (only Prismatic-managed public components use true). */
+  public?: TPublic;
+  /** How this component appears in the Prismatic UI. */
+  display: ComponentDisplayDefinition<TPublic>;
+  /** Named actions this component exposes. */
+  actions?: Record<string, ActionDefinition<any, any, boolean, any>>;
+  /** Named triggers this component exposes. */
+  triggers?: Record<string, TriggerDefinition<any, any, boolean, any> | PollingTriggerDefinition<any, any, any, any, any, any>>;
+  /** Named data sources this component exposes. */
+  dataSources?: Record<string, DataSourceDefinition<any, any, any>>;
+  /** Connection definitions used by this component's actions. */
+  connections?: ConnectionDefinition[];
+  /** Optional global hooks (e.g., a component-wide error handler). */
+  hooks?: ComponentHooks;
+  /** Documentation URL. Required for public Prismatic components; optional for custom. */
+  documentationUrl?: string;
+};
+```
+
+The `display` field uses `ComponentDisplayDefinition`:
+
+```typescript
+type ComponentDisplayDefinition<TPublic extends boolean> = {
+  label: string;      // Human-readable name shown in the UI
+  description: string; // Short description of what this connector does
+  iconPath: string;   // Path to icon file relative to built source
+  category?: string;  // Optional grouping category
+};
+```
+
+## Minimal complete example
+
+The following example shows a complete connector with one action:
+
+```typescript
+import {
+  component,
+  action,
+  input,
+  connection,
+} from "@prismatic-io/spectral";
+
+const myConnection = connection({
+  key: "myConnection",
+  display: {
+    label: "My API Connection",
+    description: "Authenticate with My API using an API key",
+  },
+  inputs: {
+    apiKey: {
+      label: "API Key",
+      type: "password",
+      required: true,
+      comments: "Your My API secret key",
+    },
+  },
+});
+
+const listItems = action({
+  display: {
+    label: "List Items",
+    description: "Retrieve all items from My API",
+  },
+  inputs: {
+    connection: input({
+      label: "Connection",
+      type: "connection",
+      required: true,
+    }),
+    pageSize: input({
+      label: "Page Size",
+      type: "string",
+      default: "50",
+      comments: "Number of items to return per page",
+    }),
+  },
+  perform: async (context, params) => {
+    const apiKey = params.connection.fields.apiKey as string;
+    const response = await fetch(
+      `https://api.example.com/items?limit=${params.pageSize}`,
+      { headers: { Authorization: `Bearer ${apiKey}` } }
+    );
+    const data = await response.json();
+    return { data };
+  },
+});
+
+export default component({
+  key: "myComponent",
+  display: {
+    label: "My Component",
+    description: "Connect to My API",
+    iconPath: "icon.png",
+  },
+  actions: { listItems },
+  connections: [myConnection],
+});
+```
+
+## Component structure
+
+A typical connector project has this layout:
+
+```
+my-component/
+├── src/
+│   ├── index.ts        # component() call — the entry point
+│   ├── actions.ts      # action() definitions
+│   ├── triggers.ts     # trigger() definitions
+│   ├── dataSources.ts  # dataSource() definitions
+│   ├── connections.ts  # connection() definitions
+│   └── inputs.ts       # shared input() definitions
+├── assets/
+│   └── icon.png
+├── package.json
+└── tsconfig.json
+```
+
+<Note>
+All keys (`key` on `component`, `action`, `connection`, etc.) must be unique within their scope and should use camelCase. They are programmatic identifiers used in the Prismatic API and cannot be changed after publishing.
+</Note>
+
+## Building and publishing
+
+<Steps>
+  <Step title="Install dependencies">
+    ```bash
+    npm install @prismatic-io/spectral
+    ```
+  </Step>
+  <Step title="Build the component">
+    ```bash
+    npm run build
+    ```
+  </Step>
+  <Step title="Publish to Prismatic">
+    ```bash
+    prism components:publish
+    ```
+  </Step>
+</Steps>
+
+## Explore the building blocks
+
+<CardGroup cols={2}>
+  <Card title="Actions" icon="bolt" href="/custom-connectors/actions">
+    Define the operations your connector performs — API calls, data transformations, and more.
+  </Card>
+  <Card title="Triggers" icon="play" href="/custom-connectors/triggers">
+    Define how an integration flow is started, including webhook and polling triggers.
+  </Card>
+  <Card title="Data sources" icon="database" href="/custom-connectors/data-sources">
+    Populate config wizard dropdowns and forms by fetching data from external APIs.
+  </Card>
+  <Card title="Connections" icon="link" href="/custom-connectors/connections">
+    Define authentication schemes: API keys, username/password, and OAuth 2.0.
+  </Card>
+  <Card title="Inputs" icon="pen-line" href="/custom-connectors/inputs">
+    Declare typed input fields that are configured by integration builders.
+  </Card>
+  <Card title="Branching" icon="git-branch" href="/custom-connectors/branching">
+    Route execution down different paths based on action results.
+  </Card>
+  <Card title="Error handling" icon="triangle-alert" href="/custom-connectors/error-handling">
+    Use global hooks and typed errors to handle failures gracefully.
+  </Card>
+</CardGroup>

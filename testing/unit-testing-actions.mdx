@@ -1,0 +1,306 @@
+---
+title: Unit testing actions
+description: Test custom component action perform functions using invoke() or the ComponentTestHarness.
+---
+
+Action tests verify that your action's `perform` function returns correct data and logs expected messages given a set of input parameters. Spectral provides two approaches: the standalone `invoke()` function and the `ComponentTestHarness` created by `createHarness()`.
+
+## `invoke()` function
+
+`invoke()` calls an action's `perform` function directly. It builds a complete mock `ActionContext` automatically and returns both the action result and the mock logger.
+
+### Signature
+
+```typescript
+invoke<TInputs, TConfigVars, TAllowsBranching, TReturn>(
+  action: ActionDefinition<TInputs, TConfigVars, TAllowsBranching, TReturn>,
+  params: ActionInputParameters<TInputs>,
+  context?: Partial<ActionContext<TConfigVars>>,
+): Promise<InvokeReturn<TReturn>>
+```
+
+<ParamField path="action" type="ActionDefinition" required>
+  The action definition object to test. Pass the definition directly — not a component.
+</ParamField>
+
+<ParamField path="params" type="ActionInputParameters">
+  An object whose keys match the action's `inputs`. Pass every required input. Optional inputs default to an empty string when omitted.
+</ParamField>
+
+<ParamField path="context" type="Partial<ActionContext>">
+  Optional partial context overrides. Any fields you provide are merged on top of the auto-generated mock context.
+</ParamField>
+
+### Return value: `InvokeReturn<TReturn>`
+
+`invoke()` resolves to an object with two fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `result` | `TReturn` | The value returned by the action's `perform` function |
+| `loggerMock` | `ActionLogger` | The spy-backed logger; assert on `.info`, `.warn`, `.error`, etc. |
+
+## Basic action test
+
+The simplest test invokes an action and asserts on `result.data`:
+
+```typescript my-action.test.ts
+import { describe, expect, it } from "vitest";
+import { action } from "@prismatic-io/spectral";
+import { invoke } from "@prismatic-io/spectral/dist/testing";
+
+const myAction = action({
+  display: { label: "My action", description: "My desc" },
+  inputs: {
+    myActionInput: {
+      label: "My action input",
+      type: "string",
+    },
+  },
+  perform: async (context, params) => {
+    return Promise.resolve({ data: 1 });
+  },
+});
+
+describe("myAction", () => {
+  it("returns numeric data", async () => {
+    const { result } = await invoke(myAction, { myActionInput: "hello" });
+    expect(result.data).toBe(1);
+  });
+});
+```
+
+## Branching actions
+
+For actions that set `allowsBranching: true`, assert on `result.branch`:
+
+```typescript branching-action.test.ts
+import { describe, expect, it } from "vitest";
+import { action } from "@prismatic-io/spectral";
+import { invoke } from "@prismatic-io/spectral/dist/testing";
+
+const branchingAction = action({
+  display: { label: "Branching", description: "Branching" },
+  allowsBranching: true,
+  staticBranchNames: ["Foo", "Bar"],
+  inputs: {},
+  perform: async () => Promise.resolve({ data: null, branch: "Foo" }),
+});
+
+describe("branchingAction", () => {
+  it("branches to Foo", async () => {
+    const {
+      result: { branch },
+    } = await invoke(branchingAction, {});
+    expect(branch).toStrictEqual("Foo");
+  });
+});
+```
+
+## Providing connection inputs
+
+Use `createConnection()` to build a `ConnectionValue` from a connection definition and hard-coded field values:
+
+```typescript connection-action.test.ts
+import { describe, expect, it } from "vitest";
+import { action, connection } from "@prismatic-io/spectral";
+import { invoke, createConnection } from "@prismatic-io/spectral/dist/testing";
+
+const myConnection = connection({
+  key: "myConnection",
+  display: {
+    label: "My Connection",
+    description: "This is my connection",
+  },
+  inputs: {
+    username: {
+      label: "Username",
+      placeholder: "Username",
+      type: "string",
+      required: true,
+      comments: "Username for my Connection",
+    },
+    password: {
+      label: "Password",
+      placeholder: "Password",
+      type: "password",
+      required: true,
+      comments: "Password for my Connection",
+    },
+  },
+});
+
+describe("createConnection", () => {
+  it("builds a ConnectionValue", () => {
+    const conn = createConnection(myConnection, {
+      username: "alice",
+      password: "secret",
+    });
+    expect(conn).toBeDefined();
+  });
+});
+```
+
+### Reading a connection from an environment variable
+
+Use `connectionValue()` to source live credentials from `PRISMATIC_CONNECTION_VALUE` without committing them to your repository:
+
+```typescript env-connection.test.ts
+import { connectionValue } from "@prismatic-io/spectral/dist/testing";
+
+// Export before running tests:
+// export PRISMATIC_CONNECTION_VALUE='{"fields":{"username":"alice","password":"secret"}}'
+
+const conn = connectionValue();
+```
+
+<Tip>
+  Use a custom environment variable name by passing it as the first argument: `connectionValue("MY_API_CONNECTION")`.
+</Tip>
+
+## Asserting on log output
+
+The `loggerMock` returned from `invoke()` exposes spy functions for every log level. Use your test runner's spy assertion helpers to verify logging:
+
+```typescript logging-action.test.ts
+import { describe, expect, it } from "vitest";
+import { invoke } from "@prismatic-io/spectral/dist/testing";
+import { myAction } from "./src/actions";
+
+describe("myAction logging", () => {
+  it("logs the processed value", async () => {
+    const { result, loggerMock } = await invoke(myAction, {
+      myInput: "hello",
+    });
+    expect(loggerMock.info).toHaveBeenCalledWith("Processing input: hello");
+  });
+
+  it("logs a warning for empty input", async () => {
+    const { loggerMock } = await invoke(myAction, { myInput: "" });
+    expect(loggerMock.warn).toHaveBeenCalled();
+  });
+});
+```
+
+Available spy methods on `loggerMock`:
+
+| Method | Level |
+|--------|-------|
+| `loggerMock.trace` | trace |
+| `loggerMock.debug` | debug |
+| `loggerMock.info` | info |
+| `loggerMock.log` | log |
+| `loggerMock.warn` | warn |
+| `loggerMock.error` | error |
+
+## Providing partial context overrides
+
+Pass a partial `ActionContext` as the third argument to override specific context fields:
+
+```typescript context-override.test.ts
+import { invoke } from "@prismatic-io/spectral/dist/testing";
+import { myAction } from "./src/actions";
+
+const { result } = await invoke(
+  myAction,
+  { myInput: "value" },
+  {
+    customer: { id: "cust-123", name: "Acme Corp", externalId: "acme" },
+    configVars: { "API Endpoint": "https://staging.example.com" },
+  },
+);
+```
+
+Any fields you omit are filled in with sensible mock defaults (mock IDs, example URLs, etc.).
+
+## Using `ComponentTestHarness.action()`
+
+`createHarness()` wraps a complete component and lets you invoke actions by key string. The harness automatically applies input defaults and `clean` functions defined on each input.
+
+```typescript harness-action.test.ts
+import { describe, expect, it } from "vitest";
+import { createHarness } from "@prismatic-io/spectral/dist/testing";
+import myComponent from "./src";
+
+const harness = createHarness(myComponent);
+
+describe("harness actions", () => {
+  it("invokes fooAction", async () => {
+    const result = await harness.action("fooAction", {
+      fooInput: "hello",
+    });
+    expect(result?.data).toMatchObject({ fooInput: "hello" });
+  });
+
+  it("cleans numeric string inputs", async () => {
+    const result = await harness.action("cleanAction", {
+      cleanInput: "200",
+    });
+    // clean: (value) => util.types.toNumber(value) converts "200" -> 200
+    expect(result?.data).toMatchObject({ cleanInput: 200 });
+  });
+
+  it("uses defaulted input values when not supplied", async () => {
+    const result = await harness.action("cleanDefaultedAction");
+    expect(result?.data).toMatchObject({
+      defaultedInput: "5",
+      defaultedCleanInput: 5,
+    });
+  });
+});
+```
+
+### Passing a connection via the harness
+
+Use `harness.connectionValue(connectionDefinition)` to read the `PRISMATIC_CONNECTION_VALUE` environment variable and attach it to the correct connection key:
+
+```typescript harness-connection.test.ts
+import { createHarness } from "@prismatic-io/spectral/dist/testing";
+import myComponent from "./src";
+import { testConnection } from "./src/connections";
+
+process.env.PRISMATIC_CONNECTION_VALUE = JSON.stringify({
+  fields: { authorizeUrl: "https://example.com/auth" },
+  token: { access_token: "access", refresh_token: "refresh" },
+});
+
+const harness = createHarness(myComponent);
+
+const result = await harness.action("fooAction", {
+  connectionInput: harness.connectionValue(testConnection),
+  fooInput: "hello",
+});
+expect(result?.data).toMatchObject({ fooInput: "hello" });
+```
+
+<Note>
+  `harness.connectionValue()` throws if `PRISMATIC_CONNECTION_VALUE` is not set in the environment.
+</Note>
+
+## Choosing between `invoke()` and the harness
+
+<Tabs>
+  <Tab title="invoke()">
+    Best when you are testing a single action definition and want explicit control over inputs and type inference.
+
+    ```typescript
+    import { invoke } from "@prismatic-io/spectral/dist/testing";
+    import { myAction } from "./src/actions";
+
+    const { result, loggerMock } = await invoke(myAction, {
+      username: "alice",
+    });
+    ```
+  </Tab>
+  <Tab title="createHarness()">
+    Best when you are testing a fully assembled component and want input defaults, clean functions, and connection resolution handled for you.
+
+    ```typescript
+    import { createHarness } from "@prismatic-io/spectral/dist/testing";
+    import myComponent from "./src";
+
+    const harness = createHarness(myComponent);
+    const result = await harness.action("myAction", { username: "alice" });
+    ```
+  </Tab>
+</Tabs>

@@ -1,0 +1,257 @@
+---
+title: 'Error handling'
+description: 'Handle errors in your connector using global hooks, typed error classes, and per-action patterns.'
+---
+
+Spectral provides two complementary mechanisms for handling errors in custom connectors: a **global error hook** that wraps every `perform` function in the component, and **typed error classes** (`SpectralError`, `ConnectionError`) that give callers structured error information.
+
+## Global error handler
+
+The `ComponentHooks` type on `ComponentDefinition` accepts an `error` field — a function called whenever any action, trigger, or data source `perform` throws an unhandled error:
+
+```typescript
+type ErrorHandler = (error: unknown) => unknown | Promise<unknown>;
+
+interface ComponentHooks {
+  error?: ErrorHandler;
+}
+```
+
+The `hooks` field is set on the `component()` call:
+
+```typescript
+import { component } from "@prismatic-io/spectral";
+import { actions } from "./actions";
+
+export default component({
+  key: "myComponent",
+  display: {
+    label: "My Component",
+    description: "Connect to My API",
+    iconPath: "icon.png",
+  },
+  actions,
+  hooks: {
+    error: async (error) => {
+      // Inspect and optionally rethrow the error
+      if (error instanceof Error) {
+        console.error(`[myComponent] Unhandled error: ${error.message}`);
+      }
+      throw error; // Re-throwing causes the step to fail as normal
+    },
+  },
+});
+```
+
+<Note>
+The global error handler **wraps** each perform call. If you re-throw from the handler, the step fails with the original error. If you swallow the error (do not re-throw), the step is marked as succeeded — use this only when you intentionally want to suppress failures.
+</Note>
+
+### Transforming errors
+
+Use the global handler to normalize third-party API error shapes before they surface in execution logs:
+
+```typescript
+hooks: {
+  error: async (error) => {
+    // Remap Axios HTTP errors into friendlier messages
+    if (
+      error &&
+      typeof error === "object" &&
+      "response" in error &&
+      (error as any).response?.data?.message
+    ) {
+      throw new Error(
+        `API error ${(error as any).response.status}: ${
+          (error as any).response.data.message
+        }`
+      );
+    }
+    throw error;
+  },
+},
+```
+
+## SpectralError
+
+`SpectralError` extends `Error` with an `isSpectralError: true` flag, making it easy to distinguish Spectral-originated errors from generic JavaScript errors:
+
+```typescript
+class SpectralError extends Error {
+  isSpectralError: boolean; // Always true
+
+  constructor(message: string) {
+    super(message);
+    this.isSpectralError = true;
+    this.name = this.constructor.name;
+    Error.captureStackTrace(this, this.constructor);
+  }
+}
+```
+
+Throw a `SpectralError` when the failure is logically part of Spectral's own execution rather than a third-party API issue:
+
+```typescript
+import { SpectralError } from "@prismatic-io/spectral";
+
+perform: async (context, params) => {
+  if (!params.recordId.startsWith("rec_")) {
+    throw new SpectralError(
+      `Invalid record ID format. Expected "rec_...", got "${params.recordId}"`
+    );
+  }
+  // ...
+}
+```
+
+## ConnectionError
+
+`ConnectionError` extends `SpectralError` and includes a reference to the `Connection` object that caused the failure. This is useful when a connection's credentials are invalid or expired:
+
+```typescript
+class ConnectionError extends SpectralError {
+  connection: Connection; // The connection that caused the error
+
+  constructor(connection: Connection, message: string) {
+    super(message);
+    this.connection = connection;
+  }
+}
+```
+
+```typescript
+import { ConnectionError } from "@prismatic-io/spectral";
+
+perform: async (context, params) => {
+  const response = await fetch("https://api.example.com/me", {
+    headers: { Authorization: `Bearer ${params.connection.fields.apiKey}` },
+  });
+
+  if (response.status === 401) {
+    throw new ConnectionError(
+      params.connection,
+      "The API key is invalid or has been revoked. Please reconnect."
+    );
+  }
+
+  // ...
+}
+```
+
+## Type guards
+
+`isSpectralError()` and `isConnectionError()` are runtime type guards that narrow the type of an unknown error:
+
+```typescript
+const isSpectralError = (payload: unknown): payload is SpectralError =>
+  Boolean(
+    payload &&
+      typeof payload === "object" &&
+      "isSpectralError" in payload &&
+      (payload as SpectralError).isSpectralError === true
+  );
+
+const isConnectionError = (payload: unknown): payload is ConnectionError =>
+  isSpectralError(payload) && "connection" in payload;
+```
+
+Use them in the global error hook to branch on error type:
+
+```typescript
+import {
+  isSpectralError,
+  isConnectionError,
+  ConnectionError,
+} from "@prismatic-io/spectral";
+
+hooks: {
+  error: async (error) => {
+    if (isConnectionError(error)) {
+      // The error is tied to a specific connection
+      const conn = (error as ConnectionError).connection;
+      console.error(
+        `Connection error for config var "${conn.configVarKey}": ${error.message}`
+      );
+      throw error;
+    }
+
+    if (isSpectralError(error)) {
+      // A Spectral-specific error
+      console.error(`SpectralError: ${error.message}`);
+      throw error;
+    }
+
+    // Generic error
+    console.error(`Unexpected error: ${String(error)}`);
+    throw error;
+  },
+},
+```
+
+## Per-action error handling
+
+For errors that are specific to one action's logic, handle them directly inside the `perform` function. Common patterns:
+
+### Wrapping HTTP errors
+
+```typescript
+perform: async (context, params) => {
+  const response = await fetch("https://api.example.com/records", {
+    headers: { Authorization: `Bearer ${params.connection.fields.apiKey}` },
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(
+      `Request to Example API failed with status ${response.status}: ${body}`
+    );
+  }
+
+  return { data: await response.json() };
+}
+```
+
+### Handling expected vs. unexpected errors
+
+```typescript
+import { SpectralError, ConnectionError } from "@prismatic-io/spectral";
+
+perform: async (context, params) => {
+  try {
+    const response = await fetch(
+      `https://api.example.com/records/${params.recordId}`,
+      { headers: { Authorization: `Bearer ${params.connection.fields.apiKey}` } }
+    );
+
+    if (response.status === 404) {
+      // Expected — return null data rather than throwing
+      return { data: null };
+    }
+
+    if (response.status === 401) {
+      throw new ConnectionError(params.connection, "Invalid or expired credentials");
+    }
+
+    if (!response.ok) {
+      throw new Error(`API error ${response.status}`);
+    }
+
+    return { data: await response.json() };
+  } catch (err) {
+    if (err instanceof SpectralError) {
+      // Already a typed error — rethrow as-is
+      throw err;
+    }
+    // Wrap unexpected errors with context
+    throw new Error(
+      `Failed to fetch record ${params.recordId}: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+  }
+}
+```
+
+<Tip>
+Use `ConnectionError` for authentication failures so integration builders see a clear prompt to reconnect, rather than a generic error message.
+</Tip>

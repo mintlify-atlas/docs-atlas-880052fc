@@ -1,0 +1,314 @@
+---
+title: oauth2Connection
+description: Define an OAuth 2.0 connection supporting the Authorization Code or Client Credentials flow.
+---
+
+The `oauth2Connection` function creates an OAuth 2.0 connection definition. Prismatic handles the OAuth token exchange, refresh, and storage automatically. You choose between the Authorization Code flow (user-facing consent) and the Client Credentials flow (machine-to-machine).
+
+## Function signature
+
+```typescript
+function oauth2Connection<T extends OAuth2ConnectionDefinition>(definition: T): T
+```
+
+`OAuth2ConnectionDefinition` is a union of `OAuth2AuthorizationCodeConnectionDefinition` and `OAuth2ClientCredentialConnectionDefinition`. The required `oauth2Type` field discriminates the two.
+
+## Parameters
+
+<ParamField path="definition" type="OAuth2ConnectionDefinition" required>
+  An object describing the OAuth 2.0 connection. Fields differ by `oauth2Type`.
+</ParamField>
+
+### Common fields
+
+<ParamField path="definition.key" type="string" required>
+  Unique programmatic identifier for this connection type.
+</ParamField>
+
+<ParamField path="definition.display" type="ConnectionDisplayDefinition" required>
+  Controls how this connection appears in the Prismatic UI.
+
+  <Expandable title="ConnectionDisplayDefinition fields">
+    <ParamField path="display.label" type="string" required>
+      Human-readable name.
+    </ParamField>
+    <ParamField path="display.description" type="string" required>
+      Describes this connection.
+    </ParamField>
+    <ParamField path="display.icons.avatarPath" type="string">
+      Path to avatar icon relative to the built component source.
+    </ParamField>
+    <ParamField path="display.icons.oauth2ConnectionIconPath" type="string">
+      Path to icon for the OAuth "Connect" button.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="definition.oauth2Type" type="OAuth2Type" required>
+  Discriminates the flow type:
+  - `OAuth2Type.AuthorizationCode` (`"authorization_code"`) — three-legged flow with user consent
+  - `OAuth2Type.ClientCredentials` (`"client_credentials"`) — two-legged machine-to-machine flow
+</ParamField>
+
+<ParamField path="definition.oauth2Config" type="OAuth2Config & OAuth2UrlOverrides">
+  Optional OAuth 2.0 configuration.
+
+  <Expandable title="oauth2Config fields">
+    <ParamField path="oauth2Config.overrideGrantType" type="string">
+      Overrides the `grant_type` parameter sent in the token request. Use for non-standard OAuth 2.0 servers.
+    </ParamField>
+    <ParamField path="oauth2Config.allowedTokenParams" type="string[]">
+      Additional parameters to include in the token request.
+    </ParamField>
+    <ParamField path="oauth2Config.oAuthSuccessRedirectUri" type="string">
+      Custom URI where users are sent after a successful OAuth authorization. See [custom redirects](https://prismatic.io/docs/integrations/connections/oauth2/custom-redirects/).
+    </ParamField>
+    <ParamField path="oauth2Config.oAuthFailureRedirectUri" type="string">
+      Custom URI where users are sent after a failed OAuth authorization.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Authorization Code fields
+
+Required when `oauth2Type` is `OAuth2Type.AuthorizationCode`:
+
+<ParamField path="definition.inputs.authorizeUrl" type="ConnectionInput" required>
+  The OAuth 2.0 authorization URL where users consent to granting access (e.g., `https://app.acme.com/oauth2/authorize`).
+</ParamField>
+
+<ParamField path="definition.inputs.tokenUrl" type="ConnectionInput" required>
+  The OAuth 2.0 token URL for exchanging an authorization code or refresh token for an access token (e.g., `https://app.acme.com/oauth2/token`).
+</ParamField>
+
+<ParamField path="definition.inputs.scopes" type="ConnectionInput" required>
+  OAuth 2.0 permissions to request from the user.
+</ParamField>
+
+<ParamField path="definition.inputs.clientId" type="ConnectionInput" required>
+  The OAuth 2.0 client ID (sometimes called app key).
+</ParamField>
+
+<ParamField path="definition.inputs.clientSecret" type="ConnectionInput" required>
+  The OAuth 2.0 client secret (sometimes called app secret).
+</ParamField>
+
+<ParamField path="definition.oauth2PkceMethod" type="OAuth2PkceMethod">
+  PKCE challenge method to use with the Authorization Code flow.
+  - `OAuth2PkceMethod.S256` (`"S256"`) — SHA-256 challenge (recommended)
+  - `OAuth2PkceMethod.Plain` (`"plain"`) — plain challenge
+
+  See [PKCE support](https://prismatic.io/docs/custom-connectors/connections/#supporting-pkce-with-oauth-20).
+</ParamField>
+
+### Client Credentials fields
+
+Required when `oauth2Type` is `OAuth2Type.ClientCredentials`:
+
+<ParamField path="definition.inputs.tokenUrl" type="ConnectionInput" required>
+  The OAuth 2.0 token URL for exchanging client credentials for an access token.
+</ParamField>
+
+<ParamField path="definition.inputs.scopes" type="ConnectionInput" required>
+  OAuth 2.0 permissions to request.
+</ParamField>
+
+<ParamField path="definition.inputs.clientId" type="ConnectionInput" required>
+  The OAuth 2.0 client ID.
+</ParamField>
+
+<ParamField path="definition.inputs.clientSecret" type="ConnectionInput" required>
+  The OAuth 2.0 client secret.
+</ParamField>
+
+## `templateConnectionInputs` helper
+
+The `templateConnectionInputs` function merges explicitly provided connection inputs with template inputs for the missing required OAuth 2.0 fields. This lets you provide custom labels or defaults for some fields while using sensible defaults for others.
+
+```typescript
+import { templateConnectionInputs, OAuth2Type } from "@prismatic-io/spectral";
+
+const inputs = templateConnectionInputs(
+  {
+    // Custom values for fields you want to control
+    clientId: {
+      label: "App Key",
+      type: "string",
+      required: true,
+      placeholder: "Your app key",
+    },
+    clientSecret: {
+      label: "App Secret",
+      type: "password",
+      required: true,
+      placeholder: "Your app secret",
+    },
+  },
+  {
+    // Template inputs fill in missing required fields
+    authorizeUrl: { type: "template", templateValue: "https://app.acme.com/oauth2/authorize", shown: false },
+    tokenUrl: { type: "template", templateValue: "https://app.acme.com/oauth2/token", shown: false },
+    scopes: { type: "template", templateValue: "read write", shown: false },
+  },
+  OAuth2Type.AuthorizationCode,
+);
+```
+
+## Examples
+
+<Tabs>
+  <Tab title="Authorization Code">
+    ```typescript
+    import {
+      oauth2Connection,
+      OAuth2Type,
+      OAuth2PkceMethod,
+      component,
+    } from "@prismatic-io/spectral";
+
+    export const acmeOAuth2 = oauth2Connection({
+      key: "acmeOAuth2",
+      display: {
+        label: "Acme OAuth 2.0",
+        description: "Connect to Acme using OAuth 2.0 Authorization Code flow",
+        icons: {
+          avatarPath: "acme-logo.png",
+          oauth2ConnectionIconPath: "acme-connect-button.png",
+        },
+      },
+      oauth2Type: OAuth2Type.AuthorizationCode,
+      oauth2PkceMethod: OAuth2PkceMethod.S256,
+      oauth2Config: {
+        oAuthSuccessRedirectUri: "https://app.acme.com/oauth/success",
+        oAuthFailureRedirectUri: "https://app.acme.com/oauth/failure",
+      },
+      inputs: {
+        authorizeUrl: {
+          label: "Authorization URL",
+          type: "string",
+          required: true,
+          default: "https://app.acme.com/oauth2/authorize",
+          shown: false,
+        },
+        tokenUrl: {
+          label: "Token URL",
+          type: "string",
+          required: true,
+          default: "https://app.acme.com/oauth2/token",
+          shown: false,
+        },
+        scopes: {
+          label: "Scopes",
+          type: "string",
+          required: true,
+          default: "read write",
+          shown: false,
+        },
+        clientId: {
+          label: "Client ID",
+          type: "string",
+          required: true,
+          placeholder: "Your OAuth 2.0 client ID",
+        },
+        clientSecret: {
+          label: "Client Secret",
+          type: "password",
+          required: true,
+          writeOnly: true,
+          placeholder: "Your OAuth 2.0 client secret",
+        },
+      },
+    });
+
+    export default component({
+      key: "acmeComponent",
+      display: {
+        label: "Acme",
+        description: "Connect to Acme",
+        iconPath: "icon.png",
+      },
+      connections: [acmeOAuth2],
+    });
+    ```
+  </Tab>
+  <Tab title="Client Credentials">
+    ```typescript
+    import {
+      oauth2Connection,
+      OAuth2Type,
+      component,
+    } from "@prismatic-io/spectral";
+
+    export const acmeClientCreds = oauth2Connection({
+      key: "acmeClientCredentials",
+      display: {
+        label: "Acme API (Machine-to-Machine)",
+        description: "Connect to Acme using OAuth 2.0 Client Credentials",
+      },
+      oauth2Type: OAuth2Type.ClientCredentials,
+      inputs: {
+        tokenUrl: {
+          label: "Token URL",
+          type: "string",
+          required: true,
+          default: "https://api.acme.com/oauth2/token",
+          shown: false,
+        },
+        scopes: {
+          label: "Scopes",
+          type: "string",
+          required: true,
+          default: "api:read api:write",
+          shown: false,
+        },
+        clientId: {
+          label: "Client ID",
+          type: "string",
+          required: true,
+          placeholder: "Your client ID",
+        },
+        clientSecret: {
+          label: "Client Secret",
+          type: "password",
+          required: true,
+          writeOnly: true,
+          placeholder: "Your client secret",
+        },
+      },
+    });
+    ```
+  </Tab>
+</Tabs>
+
+### Using an OAuth 2.0 connection in an action
+
+```typescript
+import { action, input } from "@prismatic-io/spectral";
+
+export const listContacts = action({
+  display: { label: "List Contacts", description: "Retrieve contacts" },
+  inputs: {
+    connection: input({ label: "Connection", type: "connection", required: true }),
+  },
+  perform: async (context, params) => {
+    const { token } = params.connection;
+    const accessToken = token?.access_token as string;
+
+    const response = await fetch("https://api.acme.com/contacts", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    return { data: await response.json() };
+  },
+});
+```
+
+<Tip>
+  Prismatic automatically refreshes OAuth 2.0 access tokens before they expire. You do not need to implement token refresh logic in your component.
+</Tip>
+
+## Related
+
+- [`connection`](/api-reference/connection) — Define a basic API key connection
+- [`onPremConnection`](/api-reference/on-prem-connection) — Define an on-premises connection
+- [`component`](/api-reference/component) — Register connections in a component

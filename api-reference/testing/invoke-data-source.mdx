@@ -1,0 +1,142 @@
+---
+title: 'invokeDataSource'
+description: 'Invoke a data source definition in a unit test and get the result.'
+---
+
+## Import
+
+```typescript
+import { invokeDataSource } from "@prismatic-io/spectral/dist/testing";
+```
+
+## Signature
+
+```typescript
+export const invokeDataSource = async <
+  TInputs extends Inputs,
+  TConfigVars extends ConfigVarResultCollection,
+  TDataSourceType extends DataSourceType,
+>(
+  { perform }: DataSourceDefinition<TInputs, TConfigVars, TDataSourceType>,
+  params: ActionInputParameters<TInputs>,
+  context?: Partial<DataSourceContext<TConfigVars>>,
+): Promise<DataSourceResult<TDataSourceType>>
+```
+
+`invokeDataSource` calls the `perform` function of a `DataSourceDefinition` with a mock `DataSourceContext` and the params you provide. Unlike `invoke`, it returns the `DataSourceResult` directly (not wrapped in an `InvokeReturn`).
+
+<Note>
+  Data source contexts are slightly different from action contexts — they do not include `stepId`, `executionId`, `webhookUrls`, or other execution-specific fields. `invokeDataSource` constructs the correct context type automatically.
+</Note>
+
+## Parameters
+
+<ParamField path="dataSource" type="DataSourceDefinition" required>
+  The data source definition object to invoke. Only the `perform` function is used.
+</ParamField>
+
+<ParamField path="params" type="ActionInputParameters<TInputs>" required>
+  An object containing the input parameter values for the data source. Keys must match the input keys defined on the data source.
+</ParamField>
+
+<ParamField path="context" type="Partial<DataSourceContext<TConfigVars>>">
+  Optional partial data source context. Overrides the default mock context.
+
+  <Expandable title="default context fields">
+    | Field | Default value |
+    |---|---|
+    | `logger` | `loggerMock()` |
+    | `configVars` | `{}` |
+    | `customer.id` | `"customerId"` |
+    | `customer.name` | `"Customer 1"` |
+    | `instance.id` | `"instanceId"` |
+    | `user.id` | `"userId"` |
+    | `user.email` | `"example@email.com"` |
+  </Expandable>
+</ParamField>
+
+## Return value
+
+```typescript
+type DataSourceResult<TDataSourceType extends DataSourceType> = ...
+// e.g. { result: string } for dataSourceType: "string"
+// e.g. { result: string[] } for dataSourceType: "picklist"
+```
+
+<ResponseField name="result" type="varies by dataSourceType" required>
+  The value returned by the data source's `perform` function. The shape depends on the `dataSourceType` declared on the definition.
+</ResponseField>
+
+## Examples
+
+<CodeGroup>
+
+```typescript Picklist data source
+import { dataSource, input } from "@prismatic-io/spectral";
+import { invokeDataSource } from "@prismatic-io/spectral/dist/testing";
+import { describe, expect, it } from "vitest";
+
+const listRegionsDataSource = dataSource({
+  display: { label: "List Regions", description: "Returns available regions" },
+  inputs: {
+    apiKey: input({ label: "API Key", type: "string" }),
+  },
+  dataSourceType: "picklist",
+  perform: async (context, { apiKey }) => {
+    // In a real component, you'd call an API here
+    return { result: ["us-east-1", "us-west-2", "eu-west-1"] };
+  },
+});
+
+describe("listRegionsDataSource", () => {
+  it("returns a list of regions", async () => {
+    const result = await invokeDataSource(listRegionsDataSource, {
+      apiKey: "test-key",
+    });
+    expect(result.result).toContain("us-east-1");
+    expect(result.result).toHaveLength(3);
+  });
+});
+```
+
+```typescript String data source
+import { dataSource } from "@prismatic-io/spectral";
+import { invokeDataSource } from "@prismatic-io/spectral/dist/testing";
+
+const versionDataSource = dataSource({
+  display: { label: "API Version", description: "Returns the current API version" },
+  inputs: {},
+  dataSourceType: "string",
+  perform: async (context, params) => {
+    return { result: "v2.5.0" };
+  },
+});
+
+const result = await invokeDataSource(versionDataSource, {});
+console.log(result.result); // "v2.5.0"
+```
+
+```typescript With configVars context
+import { invokeDataSource } from "@prismatic-io/spectral/dist/testing";
+import { createConnection } from "@prismatic-io/spectral/dist/testing";
+
+const result = await invokeDataSource(
+  myDataSource,
+  { projectId: "proj-123" },
+  {
+    configVars: {
+      "My Connection": createConnection(myConnectionDef, {
+        apiKey: "test-api-key",
+      }),
+    },
+  },
+);
+```
+
+</CodeGroup>
+
+## Related
+
+- [invoke](/api-reference/testing/invoke) — invoke an action definition
+- [createConnection](/api-reference/testing/create-connection) — create a test connection for use in context
+- [createHarness](/api-reference/testing/create-harness) — harness-based testing with `harness.dataSource(key, params)`

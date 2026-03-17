@@ -1,0 +1,179 @@
+---
+title: 'Code-native integrations'
+description: 'Build Prismatic integrations entirely in TypeScript using the Spectral SDK, with full control over logic, dependencies, and tooling.'
+---
+
+Code-native integrations let you define every aspect of a Prismatic integration in TypeScript source code. Instead of assembling flows in the low-code designer, you write `integration()`, `flow()`, and `configPage()` calls that compile down to the same YAML representation the designer produces — but with the full expressiveness of a typed programming language.
+
+## Code-native vs the low-code designer
+
+| Concern | Low-code designer | Code-native |
+|---|---|---|
+| Authoring | Browser drag-and-drop | TypeScript source files |
+| Version control | Prismatic-managed | Any Git workflow |
+| Logic complexity | Step branching | Arbitrary TypeScript |
+| Reuse | Copy-paste flows | Import functions and modules |
+| Dependency management | Built-in components | npm packages + built-in components |
+| Testing | Manual test runs | Unit tests with `createMockContextComponents()` |
+
+Both approaches deploy to the same Prismatic platform and support the same config wizard, connections, endpoint types, and retry/queue options.
+
+## The `integration()` function
+
+Every code-native integration starts with a call to `integration()`, which accepts an `IntegrationDefinition` object and returns a platform-ready integration artifact.
+
+```typescript
+import { integration } from "@prismatic-io/spectral";
+
+export default integration({
+  name: "My Integration",
+  description: "Syncs data between two systems",
+  flows: [...],
+});
+```
+
+### `IntegrationDefinition` fields
+
+<ParamField path="name" type="string" required>
+  The unique display name for this integration.
+</ParamField>
+
+<ParamField path="description" type="string">
+  A human-readable description shown in the Prismatic UI.
+</ParamField>
+
+<ParamField path="flows" type="Flow[]" required>
+  One or more flow definitions. Every integration must have at least one flow.
+</ParamField>
+
+<ParamField path="configPages" type="ConfigPages">
+  Config wizard pages shown when a customer deploys an instance. See [Config wizard](/code-native/config-wizard).
+</ParamField>
+
+<ParamField path="userLevelConfigPages" type="UserLevelConfigPages">
+  Config wizard pages filled in by end users rather than the deploying customer. See [Config wizard](/code-native/config-wizard).
+</ParamField>
+
+<ParamField path="componentRegistry" type="ComponentRegistry">
+  Existing Prismatic components whose actions you want to call from flow execution. See [Existing components](/code-native/existing-components).
+</ParamField>
+
+<ParamField path="endpointType" type="'flow_specific' | 'instance_specific' | 'shared_instance'">
+  Controls how incoming webhook requests are routed to flows. Defaults to `flow_specific`. See [Endpoint configuration](/code-native/endpoint-config).
+</ParamField>
+
+<ParamField path="triggerPreprocessFlowConfig" type="PreprocessFlowConfig">
+  When `endpointType` is not `flow_specific`, describes which fields in the trigger payload carry routing information. Cannot be set alongside a preprocess flow. See [Endpoint configuration](/code-native/endpoint-config).
+</ParamField>
+
+<ParamField path="instanceProfile" type="string">
+  Name of the instance profile to use. If omitted, the tenant's default profile is applied.
+</ParamField>
+
+<ParamField path="iconPath" type="string">
+  Path to the integration icon, relative to the compiled integration output.
+</ParamField>
+
+<ParamField path="category" type="string">
+  Category label for the integration in the Prismatic marketplace.
+</ParamField>
+
+<ParamField path="version" type="string">
+  Semantic version string for this integration.
+</ParamField>
+
+<ParamField path="labels" type="string[]">
+  Arbitrary labels attached to the integration.
+</ParamField>
+
+<ParamField path="scopedConfigVars" type="ScopedConfigVarMap">
+  Organization-level or customer-level connections that are managed outside the config wizard.
+</ParamField>
+
+## Minimal complete example
+
+The following integration has a single flow that receives a webhook and logs the body.
+
+```typescript
+import { integration, flow, configPage, configVar } from "@prismatic-io/spectral";
+
+export default integration({
+  name: "Hello World",
+  description: "A minimal code-native integration",
+
+  configPages: {
+    "Connection Settings": configPage({
+      tagline: "Provide your API credentials",
+      elements: {
+        "API Base URL": configVar({
+          stableKey: "api-base-url",
+          dataType: "string",
+          description: "The base URL for the external API",
+          defaultValue: "https://api.example.com",
+        }),
+      },
+    }),
+  },
+
+  flows: [
+    flow({
+      name: "Receive Webhook",
+      stableKey: "receive-webhook",
+      description: "Handles inbound webhook events",
+      onExecution: async (context, params) => {
+        const payload = params.onTrigger.results;
+        const baseUrl = context.configVars["API Base URL"];
+
+        console.log("Received webhook from", baseUrl, payload.body.data);
+
+        return { data: null };
+      },
+    }),
+  ],
+});
+```
+
+<Note>
+Set `DEBUG=true` in your environment to print the compiled integration YAML to the console during development.
+</Note>
+
+## Project structure
+
+A typical code-native integration project looks like this:
+
+```
+<Tree>
+  <Tree.Folder name="src" defaultOpen>
+    <Tree.File name="index.ts" />
+    <Tree.Folder name="flows" defaultOpen>
+      <Tree.File name="receiveWebhook.ts" />
+      <Tree.File name="syncRecords.ts" />
+    </Tree.Folder>
+    <Tree.Folder name="connections" defaultOpen>
+      <Tree.File name="acmeConnection.ts" />
+    </Tree.Folder>
+  </Tree.Folder>
+  <Tree.File name="package.json" />
+  <Tree.File name="tsconfig.json" />
+</Tree>
+```
+
+## Next steps
+
+<Columns cols={2}>
+  <Card title="Flows" icon="arrows-split-up-and-left" href="/code-native/flows">
+    Define flow logic, triggers, retry policies, and lifecycle hooks.
+  </Card>
+  <Card title="Config wizard" icon="sliders" href="/code-native/config-wizard">
+    Build multi-page config wizards with typed variables and connections.
+  </Card>
+  <Card title="Connections" icon="plug" href="/code-native/connections">
+    Configure customer and organization connections as config variables.
+  </Card>
+  <Card title="Endpoint configuration" icon="webhook" href="/code-native/endpoint-config">
+    Control how inbound requests are routed across flows and instances.
+  </Card>
+  <Card title="Existing components" icon="blocks" href="/code-native/existing-components">
+    Call actions from built-in Prismatic components inside your flows.
+  </Card>
+</Columns>

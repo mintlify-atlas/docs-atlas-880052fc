@@ -1,0 +1,264 @@
+---
+title: 'createHarness'
+description: 'Create a ComponentTestHarness for testing a full component object by key, including actions, triggers, and data sources.'
+---
+
+## Import
+
+```typescript
+import { createHarness, ComponentTestHarness } from "@prismatic-io/spectral/dist/testing";
+```
+
+## Signature
+
+```typescript
+export const createHarness = <
+  TInputs extends Inputs,
+  TActionInputs extends Inputs,
+  TConfigVars extends ConfigVarResultCollection = ConfigVarResultCollection,
+  TPayload extends TriggerPayload = TriggerPayload,
+  TAllowsBranching extends boolean = boolean,
+  TResult extends TriggerResult<TAllowsBranching, TPayload> = TriggerResult<TAllowsBranching, TPayload>,
+  TComponent extends Component<...> = Component<...>,
+>(
+  component: TComponent,
+): ComponentTestHarness<TInputs, TActionInputs, TConfigVars, TPayload, TAllowsBranching, TResult, TComponent>
+```
+
+`createHarness` wraps a complete component definition and exposes convenience methods for invoking its actions, triggers, and data sources by key. It also handles input default values and `clean` functions automatically.
+
+<Tip>
+  `createHarness` is the recommended approach for component-level tests. For more fine-grained tests of a single action or trigger, use [invoke](/api-reference/testing/invoke) or [invokeTrigger](/api-reference/testing/invoke-trigger) directly.
+</Tip>
+
+## Parameters
+
+<ParamField path="component" type="Component" required>
+  The component definition created with `component()`.
+</ParamField>
+
+## Return value
+
+Returns a `ComponentTestHarness` instance with the following methods:
+
+### harness.action
+
+```typescript
+public async action<TConfigVars extends ConfigVarResultCollection>(
+  key: string,
+  params?: Record<string, unknown>,
+  context?: Partial<ActionContext<TConfigVars>>,
+): Promise<ServerActionPerformReturn>
+```
+
+Invoke an action by its key. Input default values are applied automatically; any `clean` functions defined on inputs run before `perform` is called.
+
+<ParamField path="key" type="string" required>
+  The key of the action within `component.actions`.
+</ParamField>
+
+<ParamField path="params" type="Record<string, unknown>">
+  Input values to pass. Unspecified inputs fall back to their `default` values.
+</ParamField>
+
+<ParamField path="context" type="Partial<ActionContext<TConfigVars>>">
+  Optional context overrides.
+</ParamField>
+
+### harness.trigger
+
+```typescript
+public async trigger(
+  key: string,
+  payload?: Partial<TPayload>,
+  params?: Record<string, unknown>,
+  context?: Partial<ActionContext<TConfigVars>>,
+): Promise<TriggerResult>
+```
+
+Invoke a trigger by its key. The payload is merged over `defaultTriggerPayload()`.
+
+<ParamField path="key" type="string" required>
+  The key of the trigger within `component.triggers`.
+</ParamField>
+
+<ParamField path="payload" type="Partial<TPayload>">
+  Partial trigger payload override.
+</ParamField>
+
+<ParamField path="params" type="Record<string, unknown>">
+  Input values for the trigger.
+</ParamField>
+
+<ParamField path="context" type="Partial<ActionContext<TConfigVars>>">
+  Optional context overrides.
+</ParamField>
+
+### harness.triggerOnInstanceDeploy
+
+```typescript
+public async triggerOnInstanceDeploy<TConfigVars extends ConfigVarResultCollection>(
+  key: string,
+  params?: Record<string, unknown>,
+  context?: Partial<ActionContext<TConfigVars>>,
+): Promise<TriggerEventFunctionReturn | void>
+```
+
+Invoke a trigger's `onInstanceDeploy` lifecycle hook. Throws if the trigger does not define `onInstanceDeploy`.
+
+### harness.triggerOnInstanceDelete
+
+```typescript
+public async triggerOnInstanceDelete<TConfigVars extends ConfigVarResultCollection>(
+  key: string,
+  params?: Record<string, unknown>,
+  context?: Partial<ActionContext<TConfigVars>>,
+): Promise<TriggerEventFunctionReturn | void>
+```
+
+Invoke a trigger's `onInstanceDelete` lifecycle hook. Throws if the trigger does not define `onInstanceDelete`.
+
+### harness.dataSource
+
+```typescript
+public async dataSource<TConfigVars extends ConfigVarResultCollection>(
+  key: string,
+  params?: Record<string, unknown>,
+  context?: Partial<DataSourceContext<TConfigVars>>,
+): Promise<DataSourceResult>
+```
+
+Invoke a data source by its key.
+
+<ParamField path="key" type="string" required>
+  The key of the data source within `component.dataSources`.
+</ParamField>
+
+<ParamField path="params" type="Record<string, unknown>">
+  Input values for the data source.
+</ParamField>
+
+<ParamField path="context" type="Partial<DataSourceContext<TConfigVars>>">
+  Optional context overrides.
+</ParamField>
+
+### harness.connectionValue
+
+```typescript
+public connectionValue({ key }: ConnectionDefinition): ConnectionValue
+```
+
+Reads a `ConnectionValue` from the `PRISMATIC_CONNECTION_VALUE` environment variable and injects the connection's `key`. Throws if the environment variable is not set.
+
+<ParamField path="connectionDef" type="ConnectionDefinition" required>
+  The connection definition whose `key` should be applied to the parsed value.
+</ParamField>
+
+## Complete example
+
+```typescript
+import { describe, expect, it } from "vitest";
+import { component, connection, action, trigger, dataSource, input } from "@prismatic-io/spectral";
+import { createHarness } from "@prismatic-io/spectral/dist/testing";
+import type { ConnectionValue } from "@prismatic-io/spectral/dist/serverTypes";
+import { OAuth2Type } from "@prismatic-io/spectral";
+
+// Define a connection
+const myConnection = connection({
+  key: "myConnection",
+  display: { label: "My Connection", description: "" },
+  oauth2Type: OAuth2Type.AuthorizationCode,
+  inputs: {
+    clientId: { label: "Client ID", type: "string", required: true, shown: true, default: "client-id" },
+    clientSecret: { label: "Client Secret", type: "password", required: true, shown: true, default: "client-secret" },
+  },
+});
+
+// Define an action that uses the connection
+const fetchDataAction = action({
+  display: { label: "Fetch Data", description: "Fetches data from the API" },
+  inputs: {
+    connection: input({ label: "Connection", type: "connection" }),
+    resourceId: input({ label: "Resource ID", type: "string" }),
+  },
+  perform: async (context, { connection, resourceId }) => {
+    return { data: { id: resourceId, token: connection.token?.access_token } };
+  },
+});
+
+// Define a data source
+const listItemsSource = dataSource({
+  display: { label: "List Items", description: "Returns available items" },
+  inputs: {
+    connection: input({ label: "Connection", type: "connection" }),
+  },
+  dataSourceType: "picklist",
+  perform: async (context, { connection }) => {
+    return { result: ["item-a", "item-b", "item-c"] };
+  },
+});
+
+// Build the component
+const myComponent = component({
+  key: "my-component",
+  display: { label: "My Component", description: "Example", iconPath: "icon.png" },
+  actions: { fetchDataAction },
+  dataSources: { listItemsSource },
+  connections: [myConnection],
+});
+
+// Seed the connection value in the environment
+const testConnectionValue: ConnectionValue = {
+  key: myConnection.key,
+  configVarKey: "myConnection",
+  fields: { clientId: "client-id", clientSecret: "client-secret" },
+  token: { access_token: "test-access-token" },
+};
+process.env.PRISMATIC_CONNECTION_VALUE = JSON.stringify(testConnectionValue);
+
+describe("my-component", () => {
+  const harness = createHarness(myComponent);
+
+  it("invokes fetchDataAction", async () => {
+    const result = await harness.action("fetchDataAction", {
+      connection: harness.connectionValue(myConnection),
+      resourceId: "res-456",
+    });
+    expect(result?.data).toMatchObject({
+      id: "res-456",
+      token: "test-access-token",
+    });
+  });
+
+  it("invokes listItemsSource", async () => {
+    const result = await harness.dataSource("listItemsSource", {
+      connection: harness.connectionValue(myConnection),
+    });
+    expect(result?.result).toContain("item-a");
+  });
+});
+```
+
+## Input defaults and clean functions
+
+`createHarness` applies input `default` values automatically when a param is not provided. If an input defines a `clean` function, it is called on the raw value before the `perform` function receives it:
+
+```typescript
+const numericInput = input({
+  label: "Count",
+  type: "string",
+  default: "10",
+  clean: (value) => util.types.toNumber(value),
+});
+
+// Not passing "count" will use default "10", then clean it to number 10
+const result = await harness.action("myAction");
+// result.data.count === 10  (number, not string)
+```
+
+## Related
+
+- [createConnection](/api-reference/testing/create-connection) — create a `ConnectionValue` without using an env var
+- [invoke](/api-reference/testing/invoke) — invoke a single action definition directly
+- [invokeTrigger](/api-reference/testing/invoke-trigger) — invoke a single trigger definition directly
+- [loggerMock](/api-reference/testing/logger-mock) — the mock logger

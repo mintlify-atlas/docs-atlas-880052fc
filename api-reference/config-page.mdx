@@ -1,0 +1,141 @@
+---
+title: 'configPage()'
+description: 'Creates a config wizard page object for use in code-native integrations.'
+---
+
+The `configPage()` function defines a single page in an integration's config wizard. Config pages are displayed when a customer deploys an instance of the integration, allowing them to supply values for config variables and connections. Pages are passed as values in the `configPages` or `userLevelConfigPages` record of [`integration()`](/api-reference/integration).
+
+## Function signature
+
+```typescript
+export const configPage = <T extends ConfigPage = ConfigPage>(
+  definition: T,
+): T
+```
+
+## Parameters
+
+<ParamField path="definition" type="ConfigPage" required>
+  An object describing the config page.
+
+  <Expandable title="ConfigPage fields" defaultOpen>
+    <ParamField path="elements" type="Record<string, ConfigPageElement>" required>
+      A record of config variables and/or connections to display on this page. Keys become the variable names accessible in `context.configVars` during flow execution.
+
+      Each value can be:
+      - A `string` — a section heading or static text label on the page.
+      - A `ConfigVar` — a standard, data source, or connection config variable (see related functions below).
+    </ParamField>
+
+    <ParamField path="tagline" type="string">
+      Optional subtitle displayed beneath the page name in the config wizard UI.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Return type
+
+<ResponseField name="configPage" type="T">
+  The same config page definition object passed in, unchanged. The function is used for type inference so that `context.configVars` is typed correctly in flow execution functions.
+</ResponseField>
+
+<Note>
+  Config page names (the keys in `configPages`) and element names (the keys in `elements`) are used to look up values at runtime via `context.configVars`. Use descriptive, stable names.
+</Note>
+
+## Example
+
+```typescript
+import {
+  integration,
+  flow,
+  configPage,
+  configVar,
+  connectionConfigVar,
+  dataSourceConfigVar,
+} from "@prismatic-io/spectral";
+
+export default integration({
+  name: "CRM Sync",
+  flows: [
+    flow({
+      name: "Sync Contacts",
+      stableKey: "sync-contacts",
+      onExecution: async (context, params) => {
+        const apiUrl = context.configVars["API Endpoint"];
+        const batchSize = context.configVars["Batch Size"];
+        context.logger.info(`Syncing to ${apiUrl} in batches of ${batchSize}`);
+        return { data: null };
+      },
+    }),
+  ],
+  configPages: {
+    "CRM Connection": configPage({
+      tagline: "Connect your CRM account",
+      elements: {
+        "My CRM Connection": connectionConfigVar({
+          stableKey: "crm-connection",
+          dataType: "connection",
+          inputs: {},
+        }),
+      },
+    }),
+    "Sync Settings": configPage({
+      tagline: "Configure sync behavior",
+      elements: {
+        // A string element renders as a section label in the UI
+        "General Settings": "Configure general sync options below.",
+        "API Endpoint": configVar({
+          stableKey: "api-endpoint",
+          dataType: "string",
+          description: "The base URL of the target API.",
+          defaultValue: "https://api.example.com",
+        }),
+        "Batch Size": configVar({
+          stableKey: "batch-size",
+          dataType: "number",
+          description: "Number of records to sync per request.",
+          defaultValue: "100",
+        }),
+        "Enable Debug Logging": configVar({
+          stableKey: "debug-logging",
+          dataType: "boolean",
+          defaultValue: "false",
+        }),
+      },
+    }),
+  },
+});
+```
+
+## User-level config pages
+
+User-level config pages work the same way but are passed under `userLevelConfigPages` in `integration()`. They are shown in a separate user-level config wizard rather than the instance-level wizard.
+
+```typescript
+import { integration, configPage, configVar } from "@prismatic-io/spectral";
+
+export default integration({
+  name: "My Integration",
+  flows: [],
+  userLevelConfigPages: {
+    "User Preferences": configPage({
+      tagline: "Set your personal preferences",
+      elements: {
+        "Notification Email": configVar({
+          stableKey: "notification-email",
+          dataType: "string",
+          description: "Email address for notifications.",
+        }),
+      },
+    }),
+  },
+});
+```
+
+## Related
+
+- [`configVar()`](/api-reference/config-var) — Define standard config variables.
+- [`connectionConfigVar()`](/api-reference/connection-config-var) — Define connection config variables.
+- [`dataSourceConfigVar()`](/api-reference/data-source-config-var) — Define data source-backed config variables.
+- [`integration()`](/api-reference/integration) — The parent function that accepts `configPages`.

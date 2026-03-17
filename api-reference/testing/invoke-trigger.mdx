@@ -1,0 +1,180 @@
+---
+title: 'invokeTrigger'
+description: 'Invoke a trigger definition in a unit test with an optional payload and params.'
+---
+
+## Import
+
+```typescript
+import { invokeTrigger, defaultTriggerPayload } from "@prismatic-io/spectral/dist/testing";
+```
+
+## Signature
+
+```typescript
+export const invokeTrigger = async <
+  TInputs extends Inputs,
+  TConfigVars extends ConfigVarResultCollection,
+  TAllowsBranching extends boolean,
+  TResult extends TriggerResult<TAllowsBranching, TriggerPayload>,
+>(
+  { perform }: TriggerDefinition<TInputs, TConfigVars, TAllowsBranching, TResult>,
+  context?: Partial<ActionContext<TConfigVars>>,
+  payload?: TriggerPayload,
+  params?: ActionInputParameters<TInputs>,
+): Promise<InvokeReturn<TResult>>
+```
+
+`invokeTrigger` calls the `perform` function of a `TriggerDefinition`. It merges the `payload` you provide over a sensible default trigger payload and returns both the trigger result and a mock logger.
+
+## Parameters
+
+<ParamField path="trigger" type="TriggerDefinition" required>
+  The trigger definition object to invoke. Only the `perform` function is used.
+</ParamField>
+
+<ParamField path="context" type="Partial<ActionContext<TConfigVars>>">
+  Optional partial action context. Overrides the default mock context. See [invoke](/api-reference/testing/invoke) for the default context fields.
+</ParamField>
+
+<ParamField path="payload" type="TriggerPayload">
+  Optional trigger payload. Merged over `defaultTriggerPayload()` — only the fields you supply override the defaults.
+
+  <Expandable title="default payload fields (from defaultTriggerPayload)">
+    | Field | Default value |
+    |---|---|
+    | `headers["content-type"]` | `"application/json"` |
+    | `queryParameters` | `{}` |
+    | `rawBody.data` | `{ foo: "bar" }` |
+    | `rawBody.contentType` | `"application/json"` |
+    | `body.data` | `JSON.stringify({ foo: "bar" })` |
+    | `body.contentType` | `"application/json"` |
+    | `pathFragment` | `""` |
+    | `webhookUrls["Flow 1"]` | `"https://example.com"` |
+    | `webhookApiKeys["Flow 1"]` | `["example-123", "example-456"]` |
+    | `invokeUrl` | `"https://example.com"` |
+    | `executionId` | `"executionId"` |
+    | `customer.id` | `"customerId"` |
+    | `instance.id` | `"instanceId"` |
+    | `flow.id` | `"flowId"` |
+    | `globalDebug` | `false` |
+  </Expandable>
+</ParamField>
+
+<ParamField path="params" type="ActionInputParameters<TInputs>">
+  Optional input parameter values for the trigger. Defaults to an empty object when not provided.
+</ParamField>
+
+## Return value
+
+```typescript
+interface InvokeReturn<TResult> {
+  result: TResult;
+  loggerMock: ActionLogger;
+}
+```
+
+<ResponseField name="result" type="TResult" required>
+  The value returned by the trigger's `perform` function. For most triggers this is a `TriggerResult` containing a `payload` field.
+</ResponseField>
+
+<ResponseField name="loggerMock" type="ActionLogger" required>
+  A mock logger with jest/vitest spy functions. See [loggerMock](/api-reference/testing/logger-mock).
+</ResponseField>
+
+## Examples
+
+<CodeGroup>
+
+```typescript Basic trigger test
+import { trigger } from "@prismatic-io/spectral";
+import { invokeTrigger } from "@prismatic-io/spectral/dist/testing";
+import { describe, expect, it } from "vitest";
+
+const webhookTrigger = trigger({
+  display: { label: "Webhook", description: "Receive webhook events" },
+  inputs: {},
+  perform: async (context, payload, params) => {
+    return { payload };
+  },
+  scheduleSupport: "invalid",
+  synchronousResponseSupport: "valid",
+});
+
+describe("webhookTrigger", () => {
+  it("returns the payload", async () => {
+    const { result } = await invokeTrigger(webhookTrigger);
+    expect(result.payload).toBeDefined();
+  });
+});
+```
+
+```typescript With custom payload
+import { invokeTrigger } from "@prismatic-io/spectral/dist/testing";
+
+// Override specific payload fields
+const { result } = await invokeTrigger(
+  webhookTrigger,
+  undefined,
+  {
+    body: {
+      data: JSON.stringify({ event: "order.created", orderId: "ord-123" }),
+      contentType: "application/json",
+    },
+    headers: {
+      "content-type": "application/json",
+      "x-webhook-secret": "my-secret",
+    },
+  },
+);
+
+expect(result.payload.body.data).toContain("order.created");
+```
+
+```typescript With trigger params
+import { invokeTrigger } from "@prismatic-io/spectral/dist/testing";
+import { input, trigger } from "@prismatic-io/spectral";
+
+const paramTrigger = trigger({
+  display: { label: "With Params", description: "Trigger that reads params" },
+  inputs: {
+    secret: input({ label: "Secret", type: "string" }),
+  },
+  perform: async (context, payload, { secret }) => {
+    if (payload.headers["x-secret"] !== secret) {
+      throw new Error("Invalid secret");
+    }
+    return { payload };
+  },
+  scheduleSupport: "invalid",
+  synchronousResponseSupport: "invalid",
+});
+
+const { result } = await invokeTrigger(
+  paramTrigger,
+  undefined,
+  { headers: { "x-secret": "abc", "content-type": "application/json" } },
+  { secret: "abc" },
+);
+```
+
+</CodeGroup>
+
+## defaultTriggerPayload
+
+The `defaultTriggerPayload` function returns a baseline `TriggerPayload` used by both `invokeTrigger` and `invokeFlow`. You can call it directly if you need to build a full payload by extending the defaults:
+
+```typescript
+import { defaultTriggerPayload } from "@prismatic-io/spectral/dist/testing";
+
+const payload = {
+  ...defaultTriggerPayload(),
+  body: { data: "custom body", contentType: "text/plain" },
+};
+```
+
+## Related
+
+- [invoke](/api-reference/testing/invoke) — invoke an action definition
+- [invokeFlow](/api-reference/testing/invoke-flow) — invoke a full CNI flow (trigger + execution)
+- [loggerMock](/api-reference/testing/logger-mock) — the mock logger returned by `invokeTrigger`

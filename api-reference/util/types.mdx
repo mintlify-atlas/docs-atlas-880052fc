@@ -1,0 +1,522 @@
+---
+title: 'util.types'
+description: 'Type-checking and coercion utilities for working with action input values in custom components.'
+---
+
+The `util.types` namespace exposes functions for checking and coercing values between common types. Import `util` from `@prismatic-io/spectral` and access type helpers via `util.types.*`.
+
+```typescript
+import util from "@prismatic-io/spectral";
+
+const count = util.types.toInt(params.count, 0);
+const enabled = util.types.toBool(params.enabled);
+```
+
+---
+
+## Boolean
+
+### isBool
+
+```typescript
+const isBool = (value: unknown): value is boolean
+```
+
+Returns `true` if `value` is strictly `true` or `false`.
+
+```typescript
+util.types.isBool(false)    // true
+util.types.isBool("Hello") // false
+util.types.isBool(0)       // false
+```
+
+### toBool
+
+```typescript
+const toBool = (value: unknown, defaultValue?: boolean): boolean
+```
+
+Converts truthy and falsy string representations to a boolean. Truthy: `true`, `"t"`, `"true"`, `"y"`, `"yes"`. Falsy: `false`, `"f"`, `"false"`, `"n"`, `"no"`. Checks are case-insensitive.
+
+When `value` is `undefined` or an empty string, `defaultValue` is returned (or `false` if no default is given).
+
+<ParamField path="value" type="unknown" required>
+  The value to convert.
+</ParamField>
+
+<ParamField path="defaultValue" type="boolean">
+  Returned when `value` is `undefined` or an empty string.
+</ParamField>
+
+```typescript
+util.types.toBool("yes")       // true
+util.types.toBool("no")        // false
+util.types.toBool("TRUE")      // true
+util.types.toBool("", true)    // true  (uses defaultValue)
+util.types.toBool(undefined)   // false
+```
+
+---
+
+## Number
+
+### isNumber
+
+```typescript
+const isNumber = (value: unknown): boolean
+```
+
+Returns `true` if `value` can be coerced into a number without loss.
+
+```typescript
+util.types.isNumber(3.21)     // true
+util.types.isNumber("5.5")   // true
+util.types.isNumber("Hello") // false
+```
+
+### toNumber
+
+```typescript
+const toNumber = (value: unknown, defaultValue?: number): number
+```
+
+Coerces `value` to a number. Returns `defaultValue` (or `0`) when `value` is `undefined`, `null`, or an empty string. Throws when `value` is a non-numeric string.
+
+<ParamField path="value" type="unknown" required>
+  The value to convert.
+</ParamField>
+
+<ParamField path="defaultValue" type="number">
+  Returned when `value` is `undefined`, `null`, or an empty string.
+</ParamField>
+
+```typescript
+util.types.toNumber("3.22")        // 3.22
+util.types.toNumber("", 5.5)       // 5.5
+util.types.toNumber(null, 5.5)     // 5.5
+util.types.toNumber(undefined)     // 0
+util.types.toNumber("Hello")       // throws Error
+```
+
+---
+
+## Integer
+
+### isInt
+
+```typescript
+const isInt = (value: unknown): value is number
+```
+
+Returns `true` only when `value` is already an integer. String representations of integers return `false`.
+
+```typescript
+util.types.isInt(5)     // true
+util.types.isInt("5")  // false
+util.types.isInt(5.5)  // false
+```
+
+### toInt
+
+```typescript
+const toInt = (value: unknown, defaultValue?: number): number
+```
+
+Converts `value` to an integer. Floats are truncated. Returns `defaultValue` (or `0`) when `value` is `undefined` or an empty string. Throws when `value` cannot be coerced and no `defaultValue` is given.
+
+<ParamField path="value" type="unknown" required>
+  The value to convert.
+</ParamField>
+
+<ParamField path="defaultValue" type="number">
+  Returned when `value` is `undefined` or an empty string.
+</ParamField>
+
+```typescript
+util.types.toInt(5.5)      // 5
+util.types.toInt("20.3")  // 20
+util.types.toInt("", 1)   // 1
+```
+
+---
+
+## BigInt
+
+### isBigInt
+
+```typescript
+const isBigInt = (value: unknown): value is bigint
+```
+
+Returns `true` if `value` is of type `bigint`.
+
+```typescript
+util.types.isBigInt(3n)   // true
+util.types.isBigInt(3)    // false
+```
+
+### toBigInt
+
+```typescript
+const toBigInt = (value: unknown): bigint
+```
+
+Coerces `value` to a `bigint`. Accepts bigints, integers, integer strings, and booleans. Throws for non-integer values such as `"5.5"`.
+
+```typescript
+util.types.toBigInt(3)       // 3n
+util.types.toBigInt("-5")   // -5n
+util.types.toBigInt(true)   // 1n
+util.types.toBigInt(false)  // 0n
+util.types.toBigInt("5.5")  // throws Error
+```
+
+---
+
+## Date
+
+### isDate
+
+```typescript
+const isDate = (value: unknown): value is Date
+```
+
+Returns `true` if `value` is a `Date` object.
+
+### toDate
+
+```typescript
+const toDate = (value: unknown): Date
+```
+
+Parses an ISO 8601 date string, a UNIX epoch timestamp (number), or an existing `Date` object. Throws when `value` cannot be parsed.
+
+```typescript
+util.types.toDate(new Date("1995-12-17T03:24:00"))
+// Date("1995-12-17T09:24:00.000Z")
+
+util.types.toDate("2021-03-20")
+// Date("2021-03-20T05:00:00.000Z")
+
+util.types.toDate(1616198400)
+// Date("2021-03-20T00:00:00.000Z")
+
+util.types.toDate("2021-03-20-05")  // throws Error
+```
+
+---
+
+## String
+
+### isString
+
+```typescript
+const isString = (value: unknown): value is string
+```
+
+Returns `true` for primitive strings and `String` object instances.
+
+```typescript
+util.types.isString("value")          // true
+util.types.isString(new String("v")) // true
+util.types.isString(5)               // false
+```
+
+### toString
+
+```typescript
+const toString = (value: unknown, defaultValue = ""): string
+```
+
+Converts any value to a string using template literal coercion. Returns `defaultValue` when `value` is `undefined`.
+
+```typescript
+util.types.toString("Hello")         // "Hello"
+util.types.toString(5.5)             // "5.5"
+util.types.toString("", "default")   // "default" — empty string uses default
+util.types.toString(undefined)       // ""
+```
+
+---
+
+## URL
+
+### isUrl
+
+```typescript
+const isUrl = (value: string): boolean
+```
+
+Returns `true` if `value` is a syntactically valid URL. Does not make a network request to verify accessibility.
+
+```typescript
+util.types.isUrl("https://prismatic.io")     // true
+util.types.isUrl("https:://prismatic.io")    // false (extra colon)
+```
+
+---
+
+## JSON
+
+### isJSON
+
+```typescript
+const isJSON = (value: string): boolean
+```
+
+Returns `true` if `value` can be parsed as JSON.
+
+```typescript
+util.types.isJSON("")                              // false
+util.types.isJSON("5")                            // true
+util.types.isJSON('{"name":"John","age":30}')     // true
+util.types.isJSON("not json")                     // false
+```
+
+### toJSON
+
+```typescript
+const toJSON = (
+  value: unknown,
+  prettyPrint = true,
+  retainKeyOrder = false,
+): string
+```
+
+Serializes `value` to a JSON string. Handles cyclic references by replacing them with `undefined`. By default produces pretty-printed output with sorted keys.
+
+<ParamField path="value" type="unknown" required>
+  The value to serialize.
+</ParamField>
+
+<ParamField path="prettyPrint" type="boolean" default="true">
+  When `true`, output is indented with 2 spaces. When `false`, output is compact.
+</ParamField>
+
+<ParamField path="retainKeyOrder" type="boolean" default="false">
+  When `true`, keys appear in insertion order. When `false` (default), keys are sorted alphabetically.
+</ParamField>
+
+---
+
+## Data / Buffer
+
+### isBufferDataPayload
+
+```typescript
+const isBufferDataPayload = (value: unknown): value is DataPayload
+```
+
+Returns `true` if `value` is an object with a `data` property that is a `Buffer`.
+
+### toBufferDataPayload
+
+```typescript
+const toBufferDataPayload = (value: unknown): DataPayload
+```
+
+Converts strings, `Buffer`, `Uint8Array`, and objects to a `DataPayload` (`{ data: Buffer, contentType: string }`). Throws when conversion is not possible.
+
+| Input type | `data` | `contentType` |
+|---|---|---|
+| `string` | `Buffer.from(value, "utf-8")` | `"text/plain"` |
+| `Buffer` | `value` | `"application/octet-stream"` |
+| `Uint8Array` | `Buffer.from(value)` | `"application/octet-stream"` |
+| `Object` / `Array` | `Buffer.from(JSON.stringify(value), "utf-8")` | `"application/json"` |
+
+```typescript
+const { data, contentType } = util.types.toBufferDataPayload(someData);
+```
+
+### isData / toData
+
+<Warning>
+  `isData` and `toData` are deprecated. Use `isBufferDataPayload` and `toBufferDataPayload` instead.
+</Warning>
+
+---
+
+## Object
+
+### toObject
+
+```typescript
+export const toObject = (value: unknown): object
+```
+
+Parses a JSON string into an object, or returns the value unchanged if it is already an object.
+
+```typescript
+util.types.toObject('{"foo":"bar","baz":123}')  // { foo: "bar", baz: 123 }
+util.types.toObject({ foo: "bar", baz: 123 })   // { foo: "bar", baz: 123 }
+```
+
+### cleanObject
+
+```typescript
+const cleanObject = (
+  obj: Record<string, unknown>,
+  predicate?: (v: any) => boolean,
+): Record<string, unknown>
+```
+
+Removes properties from an object. By default, removes properties whose value is `undefined`, `null`, or `""`. Supply a custom `predicate` to change the removal criteria.
+
+<ParamField path="obj" type="Record<string, unknown>" required>
+  The object to clean.
+</ParamField>
+
+<ParamField path="predicate" type="(v: any) => boolean">
+  A function that returns `true` for values that should be removed. Defaults to removing `undefined`, `null`, and `""`.
+</ParamField>
+
+```typescript
+util.types.cleanObject({ foo: undefined, bar: "abc", baz: null, buz: "" })
+// { bar: "abc" }
+
+util.types.cleanObject({ foo: 1, bar: 2, baz: 3 }, v => v % 2 === 0)
+// { foo: 1, baz: 3 }
+```
+
+### lowerCaseHeaders
+
+```typescript
+export const lowerCaseHeaders = (
+  headers: Record<string, string>,
+): Record<string, string>
+```
+
+Returns a new object with all header names converted to lowercase.
+
+```typescript
+util.types.lowerCaseHeaders({ "Content-Type": "application/json" })
+// { "content-type": "application/json" }
+
+util.types.lowerCaseHeaders({ "Cache-Control": "max-age=604800" })
+// { "cache-control": "max-age=604800" }
+```
+
+---
+
+## Collections
+
+### keyValPairListToObject
+
+```typescript
+const keyValPairListToObject = <TValue = unknown>(
+  kvpList: KeyValuePair<unknown>[],
+  valueConverter?: (value: unknown) => TValue,
+): Record<string, TValue>
+```
+
+Transforms an array of `{ key, value }` pairs (as returned by key-value list inputs) into a plain object.
+
+<ParamField path="kvpList" type="KeyValuePair<unknown>[]" required>
+  Array of `{ key: string, value: unknown }` objects.
+</ParamField>
+
+<ParamField path="valueConverter" type="(value: unknown) => TValue">
+  Optional function applied to each `value` before it is set on the result object.
+</ParamField>
+
+```typescript
+util.types.keyValPairListToObject([
+  { key: "foo", value: "bar" },
+  { key: "baz", value: 5 },
+])
+// { foo: "bar", baz: 5 }
+
+// With a value converter
+util.types.keyValPairListToObject(
+  [{ key: "count", value: "42" }],
+  (v) => Number(v),
+)
+// { count: 42 }
+```
+
+---
+
+## Connection / Input types
+
+### isConnection
+
+```typescript
+const isConnection = (value: unknown): value is ConnectionDefinition
+```
+
+Returns `true` if `value` has the shape of a `ConnectionDefinition`. Accepts both objects and JSON strings.
+
+### isElement
+
+```typescript
+const isElement = (value: unknown): value is Element
+```
+
+Returns `true` if `value` is an `Element` (an object with a truthy `key` property).
+
+```typescript
+util.types.isElement({ key: "foo" })              // true
+util.types.isElement({ key: "foo", label: "Foo" }) // true
+util.types.isElement({})                           // false
+```
+
+### isPicklist
+
+```typescript
+const isPicklist = (value: unknown): boolean
+```
+
+Returns `true` if `value` is a valid picklist: an array where every element is a string or an `Element`.
+
+```typescript
+util.types.isPicklist(["a", "b"])                             // true
+util.types.isPicklist([{ key: "a" }, { key: "b" }])          // true
+util.types.isPicklist(["a", new String("b")])                 // true
+```
+
+### isSchedule
+
+```typescript
+const isSchedule = (value: unknown): boolean
+```
+
+Returns `true` if `value` is an object with a truthy `value` property (schedule format).
+
+```typescript
+util.types.isSchedule({ value: "00 00 * * 2,3" })                          // true
+util.types.isSchedule({ value: "00 00 * * 2,3", timeZone: "America/Chicago" }) // true
+util.types.isSchedule({})                                                   // false
+```
+
+### isObjectSelection / toObjectSelection
+
+```typescript
+const isObjectSelection = (value: unknown): value is ObjectSelection
+const toObjectSelection = (value: unknown): ObjectSelection
+```
+
+Check or coerce a value to `ObjectSelection` format: an array of objects each with an `object` property. Also accepts JSON strings. `toObjectSelection` throws if conversion is not possible.
+
+### isObjectFieldMap / toObjectFieldMap
+
+```typescript
+const isObjectFieldMap = (value: unknown): value is ObjectFieldMap
+const toObjectFieldMap = (value: unknown): ObjectFieldMap
+```
+
+Check or coerce a value to `ObjectFieldMap` format: an object with a `fields` array where each item has a `field` property that is an `Element`. Also accepts JSON strings. `toObjectFieldMap` throws if conversion is not possible.
+
+### isJSONForm / toJSONForm
+
+```typescript
+const isJSONForm = (value: unknown): value is JSONForm
+const toJSONForm = (value: unknown): JSONForm
+```
+
+Check or coerce a value to `JSONForm` format: an object with truthy `schema`, `uiSchema`, and `data` properties. Also accepts JSON strings. `toJSONForm` throws if conversion is not possible.
+
+---
+
+## Related
+
+- [HTTP client](/api-reference/util/http-client) — the `createClient` HTTP utility and related helpers

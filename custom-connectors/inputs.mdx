@@ -1,0 +1,298 @@
+---
+title: 'Inputs'
+description: "Define typed input fields that integration builders configure when using your connector's actions, triggers, and data sources."
+---
+
+Inputs are the configuration fields that integration builders fill in when using an action, trigger, or data source. They are defined with `input()` and passed to the `inputs` field of an action, trigger, or data source.
+
+## input() function
+
+```typescript
+export const input = <T extends InputFieldDefinition>(definition: T): T => definition;
+```
+
+All inputs share a common set of base fields:
+
+```typescript
+interface BaseInputField {
+  /** Display name shown in the Prismatic UI. */
+  label: { key: string; value: string } | string;
+  /** Placeholder text shown when the field is empty. */
+  placeholder?: string;
+  /** Help text displayed below the input. */
+  comments?: string;
+  /** Example value shown to guide the integration builder. */
+  example?: string;
+  /** Whether this input must be provided. */
+  required?: boolean;
+  /** Key of a data source whose result can populate this input. */
+  dataSource?: string;
+}
+```
+
+## InputFieldType reference
+
+The `type` field on an input determines how it is rendered in the UI and what value your `perform` function receives.
+
+<Tabs>
+  <Tab title="String types">
+    | `type` | Description | Value in `perform` |
+    |---|---|---|
+    | `"string"` | Single-line text input | `string` |
+    | `"text"` | Multi-line text area | `string` |
+    | `"data"` | Binary or base64 data | `string` |
+    | `"password"` | Masked single-line input | `string` |
+
+    ```typescript
+    const endpoint = input({
+      label: "API Endpoint",
+      type: "string",
+      required: true,
+      placeholder: "https://api.example.com",
+      example: "https://api.acme.com/v2",
+      comments: "The base URL of the API to call",
+    });
+
+    const payload = input({
+      label: "Request Body",
+      type: "text",
+      comments: "JSON or XML body to send with the request",
+    });
+
+    const secretKey = input({
+      label: "Secret Key",
+      type: "password",
+      required: true,
+    });
+    ```
+  </Tab>
+  <Tab title="Boolean">
+    Renders as a toggle switch. The value in `perform` is a string `"true"` or `"false"` unless you use a `clean` function.
+
+    ```typescript
+    const enableRetries = input({
+      label: "Enable Retries",
+      type: "boolean",
+      default: "false",
+      comments: "Automatically retry on 429 or 5xx errors",
+    });
+    ```
+  </Tab>
+  <Tab title="Code">
+    Renders a code editor with syntax highlighting. Supported `language` values: `css`, `graphql`, `handlebars`, `hcl`, `html`, `javascript`, `json`, `liquid`, `markdown`, `mysql`, `pgsql`, `plaintext`, `sql`, `typescript`, `xml`, `yaml`.
+
+    ```typescript
+    const queryInput = input({
+      label: "GraphQL Query",
+      type: "code",
+      language: "graphql",
+      required: true,
+      example: "{ users { id name email } }",
+    });
+
+    const transformScript = input({
+      label: "Transform Script",
+      type: "code",
+      language: "javascript",
+      comments: "JavaScript expression to transform the payload",
+    });
+    ```
+  </Tab>
+  <Tab title="Date and time">
+    | `type` | Description |
+    |---|---|
+    | `"date"` | Date picker (returns ISO 8601 date string) |
+    | `"timestamp"` | Date and time picker (returns ISO 8601 datetime string) |
+
+    ```typescript
+    const startDate = input({
+      label: "Start Date",
+      type: "date",
+      required: true,
+      example: "2024-01-15",
+    });
+
+    const cutoffTime = input({
+      label: "Cutoff Timestamp",
+      type: "timestamp",
+      comments: "Only process records created before this time",
+    });
+    ```
+  </Tab>
+  <Tab title="Complex types">
+    | `type` | Description |
+    |---|---|
+    | `"connection"` | A configured connection from `connections` |
+    | `"conditional"` | Conditional logic expression |
+    | `"objectSelection"` | Object and field selector |
+    | `"objectFieldMap"` | Field mapping UI |
+    | `"jsonForm"` | Dynamic JSON Forms UI |
+    | `"dynamicObjectSelection"` | Dynamic object picker |
+    | `"dynamicFieldSelection"` | Dynamic field picker |
+    | `"flow"` | Flow reference (for invoking another flow) |
+
+    ```typescript
+    const connectionInput = input({
+      label: "Connection",
+      type: "connection",
+      required: true,
+    });
+
+    const filterCondition = input({
+      label: "Filter Condition",
+      type: "conditional",
+      collection: "valuelist",
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Collection inputs
+
+Most input types support a `collection` field that changes the input from a single value into a list:
+
+| `collection` | UI | Value in `perform` |
+|---|---|---|
+| `undefined` (default) | Single value input | `T` |
+| `"valuelist"` | Add/remove list of values | `T[]` |
+| `"keyvaluelist"` | Add/remove key-value pairs | `KeyValuePair<T>[]` |
+
+```typescript
+const tags = input({
+  label: "Tags",
+  type: "string",
+  collection: "valuelist",
+  comments: "One tag per row",
+});
+
+const headers = input({
+  label: "HTTP Headers",
+  type: "string",
+  collection: "keyvaluelist",
+  comments: "Headers to include in the request",
+});
+```
+
+The `KeyValuePair` type:
+
+```typescript
+interface KeyValuePair<V = unknown> {
+  key: string;
+  value: V;
+}
+```
+
+## The clean function
+
+The optional `clean` function is called on the raw input value before it is passed to `perform`. Use it to coerce types, apply defaults, or validate values:
+
+```typescript
+import { input, util } from "@prismatic-io/spectral";
+
+const pageSize = input({
+  label: "Page Size",
+  type: "string",
+  default: "50",
+  required: false,
+  clean: (value) => {
+    const parsed = parseInt(String(value ?? "50"), 10);
+    if (isNaN(parsed) || parsed < 1) {
+      throw new Error("Page size must be a positive integer");
+    }
+    return Math.min(parsed, 100); // cap at 100
+  },
+});
+
+const enableDebug = input({
+  label: "Enable Debug Logging",
+  type: "boolean",
+  default: "false",
+  clean: util.types.toBool, // Converts string "true"/"false" to boolean
+});
+```
+
+<Note>
+The `clean` function runs before `perform` is called. The cleaned value (return value of `clean`) is what your action receives in `params`.
+</Note>
+
+## model field — restricting to predefined choices
+
+For `string`, `data`, `text`, `password`, `boolean`, `date`, and `timestamp` inputs, you can restrict the choices to a fixed list using `model`:
+
+```typescript
+const region = input({
+  label: "AWS Region",
+  type: "string",
+  required: true,
+  model: [
+    { label: "US East (N. Virginia)", value: "us-east-1" },
+    { label: "US West (Oregon)", value: "us-west-2" },
+    { label: "EU (Ireland)", value: "eu-west-1" },
+    { label: "Asia Pacific (Tokyo)", value: "ap-northeast-1" },
+  ],
+});
+```
+
+## dataSource field — dynamic choices
+
+Set `dataSource` to the key of a data source defined in the same component to populate the input's choices dynamically at config time:
+
+```typescript
+const projectId = input({
+  label: "Project",
+  type: "string",
+  required: true,
+  dataSource: "listProjects", // Key of a dataSource in the same component
+  comments: "The project to create the issue in",
+});
+```
+
+## onPremControlType for connection inputs
+
+When building an `onPremConnection`, the `host` and `port` inputs must include `onPremControlled: true`. This signals that the Prismatic on-prem agent will override these values with local tunnel endpoints:
+
+```typescript
+const hostInput = {
+  label: "Host",
+  type: "string" as const,
+  required: true,
+  onPremControlled: true, // Required for on-prem connections
+  comments: "Database hostname — overridden by the on-prem agent when active",
+};
+```
+
+## Shared inputs
+
+Inputs can be defined once and reused across multiple actions:
+
+```typescript
+// inputs.ts
+import { input } from "@prismatic-io/spectral";
+
+export const connectionInput = input({
+  label: "Connection",
+  type: "connection",
+  required: true,
+});
+
+export const recordIdInput = input({
+  label: "Record ID",
+  type: "string",
+  required: true,
+  placeholder: "rec_01HXYZ",
+  comments: "The unique identifier of the record to operate on",
+});
+
+// actions.ts
+import { action } from "@prismatic-io/spectral";
+import { connectionInput, recordIdInput } from "./inputs";
+
+export const getRecord = action({
+  display: { label: "Get Record", description: "Retrieve a single record" },
+  inputs: { connection: connectionInput, recordId: recordIdInput },
+  perform: async (context, params) => {
+    // params.connection and params.recordId are available
+    return { data: null };
+  },
+});
+```

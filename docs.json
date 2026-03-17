@@ -1,122 +1,134 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Spectral",
+  "theme": "palm",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#22a2a6",
+    "light": "#232555",
+    "dark": "#0cc099"
   },
-  "favicon": "/favicon.svg",
+  "favicon": "https://media.brand.dev/1af73a5a-df52-4a31-be03-b68d929cbf11.png",
+  "logo": {
+    "light": "https://media.brand.dev/20f13d56-a95e-423a-9ebc-180b821dfedd.png",
+    "dark": "https://media.brand.dev/20f13d56-a95e-423a-9ebc-180b821dfedd.png"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/prismatic-io/spectral"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/prismatic-io/spectral"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
+              "introduction",
               "quickstart",
-              "development"
+              "installation"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Custom Connectors",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "custom-connectors/overview",
+              "custom-connectors/actions",
+              "custom-connectors/triggers",
+              "custom-connectors/data-sources",
+              "custom-connectors/connections",
+              "custom-connectors/inputs",
+              "custom-connectors/branching",
+              "custom-connectors/error-handling"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Code-Native Integrations",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "code-native/overview",
+              "code-native/flows",
+              "code-native/config-wizard",
+              "code-native/connections",
+              "code-native/endpoint-config",
+              "code-native/existing-components"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Testing",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "testing/overview",
+              "testing/unit-testing-actions",
+              "testing/unit-testing-triggers",
+              "testing/unit-testing-flows"
+            ]
+          },
+          {
+            "group": "Utilities",
+            "pages": [
+              "utilities/http-client",
+              "utilities/type-helpers",
+              "utilities/errors"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Core Functions",
             "pages": [
-              "api-reference/introduction"
+              "api-reference/component",
+              "api-reference/action",
+              "api-reference/trigger",
+              "api-reference/polling-trigger",
+              "api-reference/data-source",
+              "api-reference/input",
+              "api-reference/connection",
+              "api-reference/oauth2-connection",
+              "api-reference/on-prem-connection"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Code-Native Integration Functions",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api-reference/integration",
+              "api-reference/flow",
+              "api-reference/config-page",
+              "api-reference/config-var",
+              "api-reference/connection-config-var",
+              "api-reference/data-source-config-var",
+              "api-reference/component-manifest"
+            ]
+          },
+          {
+            "group": "Testing Utilities",
+            "pages": [
+              "api-reference/testing/invoke",
+              "api-reference/testing/invoke-trigger",
+              "api-reference/testing/invoke-data-source",
+              "api-reference/testing/invoke-flow",
+              "api-reference/testing/create-harness",
+              "api-reference/testing/create-connection",
+              "api-reference/testing/logger-mock"
+            ]
+          },
+          {
+            "group": "Utility Module",
+            "pages": [
+              "api-reference/util/types",
+              "api-reference/util/http-client"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

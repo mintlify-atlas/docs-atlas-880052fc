@@ -1,0 +1,184 @@
+---
+title: 'configVar()'
+description: 'Creates a standard config variable object for code-native integrations.'
+---
+
+The `configVar()` function defines a standard (non-connection, non-data-source) config variable. Standard config variables hold primitive values — strings, numbers, booleans, schedules, lists, and more — that customers supply when deploying an instance. They are placed in the `elements` record of a [`configPage()`](/api-reference/config-page).
+
+## Function signature
+
+```typescript
+export const configVar = <T extends StandardConfigVar>(
+  definition: T,
+): T
+```
+
+## Parameters
+
+<ParamField path="definition" type="StandardConfigVar" required>
+  An object describing the config variable. The required fields depend on the `dataType` chosen.
+
+  <Expandable title="Common fields" defaultOpen>
+    <ParamField path="stableKey" type="string" required>
+      A unique, unchanging identifier for this config variable. Even if the variable's key (its name in `elements`) changes, `stableKey` preserves the identity of the stored value in the platform.
+    </ParamField>
+
+    <ParamField path="dataType" type="ConfigVarDataType" required>
+      The data type of this config variable. Determines the input control shown in the config wizard UI and the runtime value type.
+
+      | Value | Runtime type | Notes |
+      |---|---|---|
+      | `"string"` | `string` | Plain text input |
+      | `"date"` | `string` | Date picker (ISO format) |
+      | `"timestamp"` | `string` | Date-time picker (ISO format) |
+      | `"picklist"` | `string` | Dropdown — requires `pickList` |
+      | `"code"` | `string` | Code editor — requires `codeLanguage` |
+      | `"boolean"` | `boolean` | Toggle switch |
+      | `"number"` | `number` | Numeric input |
+      | `"schedule"` | `Schedule` | Cron schedule — optionally set `timeZone` |
+      | `"objectSelection"` | `ObjectSelection` | Multi-object selector |
+      | `"objectFieldMap"` | `ObjectFieldMap` | Field mapping UI |
+      | `"jsonForm"` | `unknown` | JSON Form (requires schema) |
+      | `"htmlElement"` | `string` | Read-only HTML display element |
+    </ParamField>
+
+    <ParamField path="description" type="string">
+      Human-readable description shown to the user in the config wizard.
+    </ParamField>
+
+    <ParamField path="defaultValue" type="string | boolean | number | ...">
+      Default value for this config variable. The accepted type matches the `dataType`. For `"boolean"` the value is a `boolean`; for `"number"` it is a `number`; for most others it is a `string`.
+    </ParamField>
+
+    <ParamField path="collectionType" type="'valuelist' | 'keyvaluelist'">
+      When set, the config variable becomes multi-value. Not available for `schedule`, `objectSelection`, `objectFieldMap`, and `jsonForm` data types.
+
+      - `"valuelist"` — An ordered list of values.
+      - `"keyvaluelist"` — A list of key-value pairs.
+    </ParamField>
+
+    <ParamField path="permissionAndVisibilityType" type="'customer' | 'embedded' | 'organization'" default="customer">
+      Controls who can view and edit this config variable in the config wizard.
+
+      - `"customer"` — Customers can view and edit the value.
+      - `"embedded"` — Customers cannot view or update; value is set programmatically.
+      - `"organization"` — Customers cannot view or update; always uses the default value or is set by the organization.
+    </ParamField>
+
+    <ParamField path="visibleToOrgDeployer" type="boolean" default="true">
+      Whether this config variable is visible to an organization deployer.
+    </ParamField>
+  </Expandable>
+
+  <Expandable title="Type-specific fields">
+    <ParamField path="pickList" type="string[]">
+      Required when `dataType` is `"picklist"`. The list of selectable string values.
+    </ParamField>
+
+    <ParamField path="codeLanguage" type="'json' | 'xml' | 'html'">
+      Required when `dataType` is `"code"`. The syntax highlighting language for the code editor.
+    </ParamField>
+
+    <ParamField path="timeZone" type="string">
+      Optional timezone for `dataType: "schedule"` config variables (e.g., `"America/New_York"`).
+    </ParamField>
+
+    <ParamField path="validationMode" type="ValidationMode">
+      Validation mode for `dataType: "jsonForm"` config variables.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Return type
+
+<ResponseField name="configVar" type="T">
+  The same config variable definition object passed in, unchanged. The function is used for type inference.
+</ResponseField>
+
+## Examples
+
+<CodeGroup>
+
+```typescript String and boolean
+import { configVar } from "@prismatic-io/spectral";
+
+const apiUrl = configVar({
+  stableKey: "api-url",
+  dataType: "string",
+  description: "Base URL of the target API.",
+  defaultValue: "https://api.example.com",
+});
+
+const debugMode = configVar({
+  stableKey: "debug-mode",
+  dataType: "boolean",
+  description: "Enable verbose logging.",
+  defaultValue: false,
+});
+```
+
+```typescript Picklist
+import { configVar } from "@prismatic-io/spectral";
+
+const region = configVar({
+  stableKey: "aws-region",
+  dataType: "picklist",
+  description: "AWS region to use.",
+  pickList: ["us-east-1", "us-west-2", "eu-west-1"],
+  defaultValue: "us-east-1",
+});
+```
+
+```typescript Code (JSON)
+import { configVar } from "@prismatic-io/spectral";
+
+const mappingConfig = configVar({
+  stableKey: "field-mapping-config",
+  dataType: "code",
+  codeLanguage: "json",
+  description: "JSON configuration for field mappings.",
+});
+```
+
+```typescript Value list (multi-value string)
+import { configVar } from "@prismatic-io/spectral";
+
+const allowedDomains = configVar({
+  stableKey: "allowed-domains",
+  dataType: "string",
+  collectionType: "valuelist",
+  description: "List of allowed email domains.",
+  defaultValue: ["example.com", "example.org"],
+});
+```
+
+```typescript Schedule
+import { configVar } from "@prismatic-io/spectral";
+
+const syncSchedule = configVar({
+  stableKey: "sync-schedule",
+  dataType: "schedule",
+  timeZone: "America/Chicago",
+  description: "How often to sync records.",
+});
+```
+
+```typescript Organization-visible only
+import { configVar } from "@prismatic-io/spectral";
+
+const internalApiKey = configVar({
+  stableKey: "internal-api-key",
+  dataType: "string",
+  description: "Internal API key managed by the organization.",
+  permissionAndVisibilityType: "organization",
+  visibleToOrgDeployer: true,
+});
+```
+
+</CodeGroup>
+
+## Related
+
+- [`configPage()`](/api-reference/config-page) — The page that contains this config variable.
+- [`connectionConfigVar()`](/api-reference/connection-config-var) — For connection-type config variables.
+- [`dataSourceConfigVar()`](/api-reference/data-source-config-var) — For data source-backed config variables.

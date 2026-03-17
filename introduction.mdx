@@ -1,0 +1,136 @@
+---
+title: "Introduction"
+description: "Prismatic's TypeScript SDK for building custom connectors and code-native integrations"
+---
+
+## What is Spectral?
+
+Spectral is Prismatic's open-source TypeScript library for building custom connectors and code-native integrations on the [Prismatic](https://prismatic.io) embedded iPaaS platform.
+
+With Spectral, you can:
+
+- Build **custom connectors** (components) with actions, triggers, data sources, and connections that appear natively in the Prismatic integration designer
+- Write **code-native integrations** entirely in TypeScript, deploying them directly to Prismatic without using the low-code designer
+- Define **OAuth 2.0 connections**, on-prem connections, and standard API key connections
+- **Unit test** your connectors and integrations locally before publishing
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build and publish your first custom connector in minutes
+  </Card>
+  <Card title="Installation" icon="download" href="/installation">
+    Install Spectral and set up your development environment
+  </Card>
+  <Card title="Custom Connectors" icon="plug" href="/custom-connectors/overview">
+    Learn how to build type-safe connectors with actions, triggers, and connections
+  </Card>
+  <Card title="Code-Native Integrations" icon="code" href="/code-native/overview">
+    Write complete integrations in TypeScript with full IDE support
+  </Card>
+</CardGroup>
+
+## Two ways to build with Spectral
+
+<Tabs>
+  <Tab title="Custom Connectors">
+    Custom connectors (components) are reusable building blocks that appear in the Prismatic low-code integration designer. They expose actions, triggers, data sources, and connections that integration builders can use without writing any code.
+
+    Use custom connectors when:
+    - You need to connect to an API not covered by Prismatic's built-in connectors
+    - You want to encapsulate reusable business logic as a connector
+    - Non-developers will build integrations using your connector
+
+    ```typescript
+    import { component, action, input, connection } from "@prismatic-io/spectral";
+
+    export default component({
+      key: "my-api",
+      display: {
+        label: "My API",
+        description: "Connect to My API",
+        iconPath: "icon.png",
+      },
+      actions: { getUser },
+      connections: [myConnection],
+    });
+    ```
+  </Tab>
+  <Tab title="Code-Native Integrations">
+    Code-native integrations are complete integrations written in TypeScript. Instead of using the visual designer, you define flows, triggers, config pages, and logic entirely in code.
+
+    Use code-native integrations when:
+    - Your team prefers a code-first workflow with version control
+    - You need complex branching or data transformation logic
+    - You want full TypeScript type safety throughout your integration
+
+    ```typescript
+    import { integration, flow, trigger, configPage } from "@prismatic-io/spectral";
+
+    export default integration({
+      name: "My Integration",
+      description: "Sync data between systems",
+      flows: [syncFlow],
+      configPages: [configPage({ ...pageDefinition })],
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Full TypeScript Support" icon="file-code">
+    Complete type definitions for all APIs. Get autocompletion, type checking, and inline documentation in your IDE.
+  </Card>
+  <Card title="OAuth 2.0 Connections" icon="lock">
+    Built-in support for OAuth 2.0 authorization code and client credentials flows, including PKCE.
+  </Card>
+  <Card title="HTTP Client" icon="globe">
+    Built-in Axios-based HTTP client with automatic retry, authorization header injection, and multipart form support.
+  </Card>
+  <Card title="Testing Utilities" icon="flask">
+    Unit test actions, triggers, data sources, and flows locally with mock contexts and logger assertions.
+  </Card>
+  <Card title="On-Prem Connections" icon="server">
+    Support for on-premises connections that route through Prismatic's on-prem agent.
+  </Card>
+  <Card title="Polling Triggers" icon="clock">
+    Scheduled polling triggers with state management for detecting new events in APIs that lack webhooks.
+  </Card>
+</CardGroup>
+
+## Package overview
+
+The `@prismatic-io/spectral` npm package exports the following top-level APIs:
+
+| Export | Purpose |
+|--------|---------|
+| `component` | Define a custom connector |
+| `action` | Define an action within a connector |
+| `trigger` | Define a trigger within a connector |
+| `pollingTrigger` | Define a polling trigger |
+| `dataSource` | Define a data source |
+| `input` | Define an input field |
+| `connection` | Define a standard connection |
+| `oauth2Connection` | Define an OAuth 2.0 connection |
+| `onPremConnection` | Define an on-prem connection |
+| `integration` | Define a code-native integration |
+| `flow` | Define a flow within a code-native integration |
+| `configPage` | Define a config wizard page |
+| `configVar` | Define a configuration variable |
+| `util` | Type coercion and utility functions |
+| `testing` | Unit testing helpers |
+
+## Learn more
+
+<CardGroup cols={3}>
+  <Card title="Custom Connectors" icon="puzzle-piece" href="/custom-connectors/overview">
+    Actions, triggers, inputs, connections
+  </Card>
+  <Card title="Code-Native" icon="laptop-code" href="/code-native/overview">
+    Flows, config wizards, endpoint config
+  </Card>
+  <Card title="Testing" icon="vial" href="/testing/overview">
+    Unit testing your connectors and flows
+  </Card>
+</CardGroup>

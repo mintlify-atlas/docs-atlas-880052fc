@@ -1,0 +1,206 @@
+---
+title: onPremConnection
+description: Define a connection that routes traffic through an on-premises agent, with host and port values overridden automatically.
+---
+
+The `onPremConnection` function creates a connection for components that need to communicate with resources behind a firewall or inside a private network. When an on-prem agent is configured, Prismatic overwrites the connection's `host` and `port` values with the local tunnel endpoint established by the agent.
+
+<Note>
+  On-prem connections require required `host` and `port` inputs with `onPremControlled: true`. These values are automatically overridden by the on-prem agent at runtime — do not use them as configurable user fields.
+</Note>
+
+## Function signature
+
+```typescript
+function onPremConnection<T extends OnPremConnectionDefinition>(definition: T): T
+```
+
+## Parameters
+
+<ParamField path="definition" type="OnPremConnectionDefinition" required>
+  An object describing the on-premises connection. See fields below.
+</ParamField>
+
+### `OnPremConnectionDefinition` fields
+
+<ParamField path="definition.key" type="string" required>
+  Unique programmatic identifier for this connection type.
+</ParamField>
+
+<ParamField path="definition.display" type="ConnectionDisplayDefinition" required>
+  Controls how this connection appears in the Prismatic UI.
+
+  <Expandable title="ConnectionDisplayDefinition fields">
+    <ParamField path="display.label" type="string" required>
+      Human-readable name.
+    </ParamField>
+    <ParamField path="display.description" type="string" required>
+      Describes this connection.
+    </ParamField>
+    <ParamField path="display.icons.avatarPath" type="string">
+      Path to avatar icon relative to the built component source.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="definition.inputs.host" type="OnPremConnectionInput" required>
+  The hostname or IP address of the on-premises resource. Must have `onPremControlled: true`. When the on-prem agent is active, this value is overridden with the agent tunnel's local endpoint.
+
+  <Expandable title="OnPremConnectionInput fields">
+    <ParamField path="inputs.host.onPremControlled" type="true" required>
+      Must be set to `true` to mark this field as agent-controlled.
+    </ParamField>
+    <ParamField path="inputs.host.type" type="string" required>
+      The input type (e.g., `"string"`).
+    </ParamField>
+    <ParamField path="inputs.host.label" type="string" required>
+      Display label.
+    </ParamField>
+    <ParamField path="inputs.host.required" type="boolean">
+      Whether this field is required.
+    </ParamField>
+    <ParamField path="inputs.host.placeholder" type="string">
+      Placeholder text.
+    </ParamField>
+    <ParamField path="inputs.host.comments" type="string">
+      Help text.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="definition.inputs.port" type="OnPremConnectionInput" required>
+  The port number of the on-premises resource. Must have `onPremControlled: true`. When the on-prem agent is active, this value is overridden with the agent tunnel's local port.
+</ParamField>
+
+<ParamField path="definition.inputs[key]" type="ConnectionInput">
+  Additional connection inputs (e.g., credentials, database name) beyond `host` and `port`. These follow the standard `ConnectionInput` shape.
+</ParamField>
+
+## `OnPremConnectionInput` type
+
+`OnPremConnectionInput` extends `ConnectionInput` with one additional required field:
+
+```typescript
+type OnPremConnectionInput = {
+  onPremControlled: true;
+} & ConnectionInput;
+```
+
+The `onPremControlled: true` flag tells the Prismatic platform that this field's value will be overridden by the on-prem agent when the connection is used in an on-prem context.
+
+## Return type
+
+Returns the same `OnPremConnectionDefinition` object passed in, after validation. Pass the returned value to the `connections` array in [`component`](/api-reference/component).
+
+## Example
+
+```typescript
+import { onPremConnection, action, input, component } from "@prismatic-io/spectral";
+
+export const databaseConnection = onPremConnection({
+  key: "databaseConnection",
+  display: {
+    label: "Database (On-Prem)",
+    description: "Connect to an on-premises database through the Prismatic agent",
+  },
+  inputs: {
+    host: {
+      label: "Host",
+      type: "string",
+      required: true,
+      onPremControlled: true,
+      placeholder: "db.internal.example.com",
+      comments: "Overridden by the on-prem agent when active",
+    },
+    port: {
+      label: "Port",
+      type: "string",
+      required: true,
+      onPremControlled: true,
+      placeholder: "5432",
+      comments: "Overridden by the on-prem agent when active",
+    },
+    database: {
+      label: "Database Name",
+      type: "string",
+      required: true,
+      placeholder: "mydb",
+    },
+    username: {
+      label: "Username",
+      type: "string",
+      required: true,
+      placeholder: "db_user",
+    },
+    password: {
+      label: "Password",
+      type: "password",
+      required: true,
+      writeOnly: true,
+      placeholder: "Your database password",
+    },
+  },
+});
+
+const queryDatabase = action({
+  display: {
+    label: "Query Database",
+    description: "Execute a SQL query against the on-premises database",
+  },
+  inputs: {
+    connection: input({ label: "Connection", type: "connection", required: true }),
+    query: input({
+      label: "SQL Query",
+      type: "code",
+      language: "sql",
+      required: true,
+      placeholder: "SELECT * FROM orders WHERE status = 'pending'",
+    }),
+  },
+  perform: async (context, params) => {
+    const { host, port, database, username, password } = params.connection.fields as {
+      host: string;
+      port: string;
+      database: string;
+      username: string;
+      password: string;
+    };
+
+    context.logger.info(`Connecting to ${host}:${port}/${database}`);
+
+    // Connect to the database using the (potentially tunneled) host/port
+    const results = await executeQuery(`${host}:${port}`, database, username, password, params.query);
+
+    return { data: results };
+  },
+});
+
+async function executeQuery(
+  endpoint: string,
+  database: string,
+  username: string,
+  password: string,
+  query: string
+) {
+  // Database query logic
+  return [];
+}
+
+export default component({
+  key: "onPremDatabaseComponent",
+  display: {
+    label: "On-Prem Database",
+    description: "Query an on-premises database",
+    iconPath: "icon.png",
+  },
+  actions: { queryDatabase },
+  connections: [databaseConnection],
+});
+```
+
+## Related
+
+- [`connection`](/api-reference/connection) — Define a standard connection
+- [`oauth2Connection`](/api-reference/oauth2-connection) — Define an OAuth 2.0 connection
+- [`component`](/api-reference/component) — Register connections in a component
+- [On-prem agent documentation](https://prismatic.io/docs/integrations/connections/on-prem-agent/#supporting-on-prem-connections-in-a-custom-connector)

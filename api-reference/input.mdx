@@ -1,0 +1,340 @@
+---
+title: input
+description: Define an input field for a custom component action, trigger, or data source.
+---
+
+The `input` function validates and returns an `InputFieldDefinition` object. Inputs define the configuration fields presented to integration builders in the Prismatic UI. The resolved input values are passed to the `perform` function via the `params` argument.
+
+## Function signature
+
+```typescript
+function input<T extends InputFieldDefinition>(definition: T): T
+```
+
+## Common fields
+
+All input types share the following base fields:
+
+<ParamField path="label" type="string | { key: string; value: string }" required>
+  The field label shown in the UI. Accepts a plain string or a `{ key, value }` object for localization.
+</ParamField>
+
+<ParamField path="type" type="InputFieldType" required>
+  The input type. See type-specific documentation below.
+</ParamField>
+
+<ParamField path="required" type="boolean">
+  When `true`, the integration builder must provide a value for this input.
+</ParamField>
+
+<ParamField path="placeholder" type="string">
+  Placeholder text shown in the input field before a value is entered.
+</ParamField>
+
+<ParamField path="comments" type="string">
+  Help text displayed below the input field to guide the integration builder.
+</ParamField>
+
+<ParamField path="example" type="string">
+  An example of a valid value for this input.
+</ParamField>
+
+<ParamField path="default" type="varies by type">
+  Default value pre-populated in the input field.
+</ParamField>
+
+<ParamField path="collection" type="'valuelist' | 'keyvaluelist'">
+  When set, this input accepts multiple values instead of a single value.
+  - `"valuelist"` — a list of values of the input's base type
+  - `"keyvaluelist"` — a list of key/value pairs where each value is the input's base type
+</ParamField>
+
+<ParamField path="model" type="InputFieldChoice[]">
+  A list of predefined choices rendered as a dropdown. Available for `string`, `data`, `text`, `password`, `boolean`, `date`, and `timestamp` types.
+
+  <Expandable title="InputFieldChoice fields">
+    <ParamField path="model[].label" type="string" required>
+      Display label for this choice.
+    </ParamField>
+    <ParamField path="model[].value" type="string" required>
+      The value submitted when this choice is selected.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="clean" type="(value: unknown) => TResult">
+  A function that transforms the raw input value before it is passed to `perform`. Useful for parsing, coercing types, or stripping whitespace. The return type of `clean` determines the TypeScript type seen in `params`.
+</ParamField>
+
+<ParamField path="dataSource" type="string">
+  Key of a data source defined in the same component that can be used to dynamically populate the allowed values for this input.
+</ParamField>
+
+## Input types
+
+<Tabs>
+  <Tab title="string">
+    A single-line text input.
+
+    ```typescript
+    input({
+      label: "API Endpoint",
+      type: "string",
+      required: true,
+      placeholder: "https://api.example.com",
+      comments: "The base URL for the API",
+      example: "https://api.acme.com",
+    })
+    ```
+  </Tab>
+  <Tab title="text">
+    A multi-line text area input.
+
+    ```typescript
+    input({
+      label: "Message Body",
+      type: "text",
+      required: false,
+      placeholder: "Enter message content...",
+    })
+    ```
+  </Tab>
+  <Tab title="data">
+    A binary data input. Accepts file uploads or binary content.
+
+    ```typescript
+    input({
+      label: "File Content",
+      type: "data",
+      required: true,
+      comments: "The binary content of the file to upload",
+    })
+    ```
+  </Tab>
+  <Tab title="password">
+    A masked text input for sensitive values.
+
+    ```typescript
+    input({
+      label: "API Secret",
+      type: "password",
+      required: true,
+      placeholder: "Your API secret key",
+    })
+    ```
+  </Tab>
+  <Tab title="boolean">
+    A toggle/checkbox input.
+
+    ```typescript
+    input({
+      label: "Enable Notifications",
+      type: "boolean",
+      default: "false",
+      comments: "Send email notifications when this action completes",
+    })
+    ```
+  </Tab>
+  <Tab title="code">
+    A syntax-highlighted code editor.
+
+    ```typescript
+    input({
+      label: "Transformation Script",
+      type: "code",
+      language: "javascript",
+      required: false,
+      comments: "JavaScript function to transform the payload",
+    })
+    ```
+
+    The `language` field is required for `code` inputs. Supported values:
+    `"css"`, `"graphql"`, `"handlebars"`, `"hcl"`, `"html"`, `"javascript"`, `"json"`, `"liquid"`, `"markdown"`, `"mysql"`, `"pgsql"`, `"plaintext"`, `"sql"`, `"typescript"`, `"xml"`, `"yaml"`
+  </Tab>
+  <Tab title="connection">
+    An input that accepts a connection config variable.
+
+    ```typescript
+    input({
+      label: "Connection",
+      type: "connection",
+      required: true,
+    })
+    ```
+
+    The resolved value is a [`Connection`](#connection-object) object with `key`, `configVarKey`, `fields`, `token`, and `context` properties.
+  </Tab>
+  <Tab title="conditional">
+    A conditional logic expression builder.
+
+    ```typescript
+    input({
+      label: "Filter Condition",
+      type: "conditional",
+      collection: "valuelist",
+      required: false,
+      comments: "Conditions to filter records",
+    })
+    ```
+
+    The `collection` field is required for `conditional` inputs.
+  </Tab>
+  <Tab title="date">
+    A date picker (date only, no time).
+
+    ```typescript
+    input({
+      label: "Start Date",
+      type: "date",
+      required: false,
+      placeholder: "YYYY-MM-DD",
+    })
+    ```
+  </Tab>
+  <Tab title="timestamp">
+    A datetime picker (date and time).
+
+    ```typescript
+    input({
+      label: "Event Timestamp",
+      type: "timestamp",
+      required: false,
+      placeholder: "2026-01-01T00:00:00Z",
+    })
+    ```
+  </Tab>
+  <Tab title="objectSelection">
+    An object selection widget for choosing objects and fields.
+
+    ```typescript
+    input({
+      label: "Objects to Sync",
+      type: "objectSelection",
+      required: false,
+      dataSource: "listObjects",
+    })
+    ```
+  </Tab>
+  <Tab title="objectFieldMap">
+    A field mapping widget.
+
+    ```typescript
+    input({
+      label: "Field Mapping",
+      type: "objectFieldMap",
+      required: false,
+      dataSource: "getFieldOptions",
+    })
+    ```
+  </Tab>
+  <Tab title="dynamicObjectSelection">
+    A dynamic object selection input backed by a data source.
+
+    ```typescript
+    input({
+      label: "Target Object",
+      type: "dynamicObjectSelection",
+      required: true,
+    })
+    ```
+  </Tab>
+  <Tab title="dynamicFieldSelection">
+    A dynamic field selection input backed by a data source.
+
+    ```typescript
+    input({
+      label: "Target Field",
+      type: "dynamicFieldSelection",
+      required: true,
+    })
+    ```
+  </Tab>
+  <Tab title="jsonForm">
+    A JSON Forms-powered dynamic form.
+
+    ```typescript
+    input({
+      label: "Configuration",
+      type: "jsonForm",
+      required: false,
+      dataSource: "configForm",
+    })
+    ```
+  </Tab>
+</Tabs>
+
+## Collections
+
+When `collection` is set, the input accepts multiple values. The `default` type and resolved `params` type change accordingly:
+
+| Collection | `default` type | Resolved `params` type |
+|---|---|---|
+| _(none)_ | `T` | `T` |
+| `"valuelist"` | `T[]` | `T[]` |
+| `"keyvaluelist"` | `KeyValuePair<T>[]` | `KeyValuePair<T>[]` |
+
+```typescript
+// A list of string values
+input({
+  label: "Allowed Domains",
+  type: "string",
+  collection: "valuelist",
+  default: ["example.com", "acme.com"],
+})
+
+// A list of key/value pairs
+input({
+  label: "HTTP Headers",
+  type: "string",
+  collection: "keyvaluelist",
+  default: [{ key: "Content-Type", value: "application/json" }],
+})
+```
+
+## `clean` function
+
+The `clean` function coerces or validates the raw input value before it reaches the `perform` function:
+
+```typescript
+import { input, util } from "@prismatic-io/spectral";
+
+const maxRetries = input({
+  label: "Max Retries",
+  type: "string",
+  default: "3",
+  clean: (value) => util.types.toInt(value, 3),
+});
+
+// In perform, params.maxRetries is typed as number
+```
+
+## `Connection` object
+
+When a `connection` input is resolved, `params.myConnection` contains:
+
+<ResponseField name="key" type="string">
+  Programmatic key of the connection type.
+</ResponseField>
+
+<ResponseField name="configVarKey" type="string">
+  Name of the config variable hosting this connection.
+</ResponseField>
+
+<ResponseField name="fields" type="{ [key: string]: unknown }">
+  Input field values supplied to this connection (e.g., `fields.apiKey`).
+</ResponseField>
+
+<ResponseField name="token" type="Record<string, unknown>">
+  OAuth 2.0 token data (e.g., `access_token`, `refresh_token`, `expires_in`). Present only for OAuth 2.0 connections.
+</ResponseField>
+
+<ResponseField name="context" type="Record<string, unknown>">
+  OAuth 2.0 token metadata (e.g., expiration time). Present only for OAuth 2.0 connections.
+</ResponseField>
+
+## Related
+
+- [`action`](/api-reference/action) — Use inputs in an action
+- [`trigger`](/api-reference/trigger) — Use inputs in a trigger
+- [`dataSource`](/api-reference/data-source) — Use inputs in a data source
+- [`connection`](/api-reference/connection) — Define connection inputs

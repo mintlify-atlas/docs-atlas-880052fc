@@ -1,0 +1,154 @@
+---
+title: component
+description: Define a custom component for the Prismatic platform, grouping actions, triggers, data sources, and connections under a single key.
+---
+
+The `component` function creates a component object that can be imported into the Prismatic API. A component bundles related actions, triggers, data sources, and connections under a unique key.
+
+## Function signature
+
+```typescript
+function component<TPublic extends boolean, TKey extends string>(
+  definition: ComponentDefinition<TPublic, TKey>
+): ReturnType<typeof convertComponent>
+```
+
+## Parameters
+
+<ParamField path="definition" type="ComponentDefinition<TPublic, TKey>" required>
+  An object describing the component. See fields below.
+</ParamField>
+
+### `ComponentDefinition` fields
+
+<ParamField path="definition.key" type="string" required>
+  A unique programmatic identifier for this component. Used in URLs and API references.
+</ParamField>
+
+<ParamField path="definition.public" type="boolean">
+  Whether this component is available to all organizations (`true`) or only your own (`false`). Only Prismatic-managed public components may set this to `true`. Defaults to `false`.
+</ParamField>
+
+<ParamField path="definition.display" type="ComponentDisplayDefinition" required>
+  Controls how the component appears in the Prismatic UI.
+
+  <Expandable title="ComponentDisplayDefinition fields">
+    <ParamField path="display.label" type="string" required>
+      Human-readable name shown in the UI.
+    </ParamField>
+    <ParamField path="display.description" type="string" required>
+      Brief description of what the component does.
+    </ParamField>
+    <ParamField path="display.iconPath" type="string" required>
+      Path to the component icon, relative to the built component source. Required for both public and private components.
+    </ParamField>
+    <ParamField path="display.category" type="string">
+      Category grouping in the UI. For public components, must be one of `"Application Connectors"`, `"Data Platforms"`, `"Helpers"`, `"Logic"`, or `"Triggers"`. Private components may use any string.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="definition.actions" type="Record<string, ActionDefinition>">
+  A map of action keys to their definitions. See [`action`](/api-reference/action).
+</ParamField>
+
+<ParamField path="definition.triggers" type="Record<string, TriggerDefinition | PollingTriggerDefinition>">
+  A map of trigger keys to their definitions. See [`trigger`](/api-reference/trigger) and [`pollingTrigger`](/api-reference/polling-trigger).
+</ParamField>
+
+<ParamField path="definition.dataSources" type="Record<string, DataSourceDefinition>">
+  A map of data source keys to their definitions. See [`dataSource`](/api-reference/data-source).
+</ParamField>
+
+<ParamField path="definition.connections" type="ConnectionDefinition[]">
+  An array of connection definitions. See [`connection`](/api-reference/connection), [`oauth2Connection`](/api-reference/oauth2-connection), and [`onPremConnection`](/api-reference/on-prem-connection).
+</ParamField>
+
+<ParamField path="definition.hooks" type="ComponentHooks">
+  Optional lifecycle hooks for the component.
+
+  <Expandable title="ComponentHooks fields">
+    <ParamField path="hooks.error" type="(error: unknown) => unknown | Promise<unknown>">
+      A global error handler that wraps all action and trigger `perform` functions. When defined, any unhandled error thrown by a `perform` function is passed to this handler before propagating. See [error handling](https://prismatic.io/docs/custom-connectors/error-handling/#global-error-handlers).
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="definition.documentationUrl" type="string">
+  URL for this component's documentation page. Required when `public` is `true` — must be `https://prismatic.io/docs/components/{key}/`. Optional for private components.
+</ParamField>
+
+## Return type
+
+Returns a converted component object shaped for the Prismatic API. This value should be the default export of your component's entry point.
+
+## Example
+
+```typescript
+import { component, action, connection, input } from "@prismatic-io/spectral";
+
+const myConnection = connection({
+  key: "apiKeyConnection",
+  display: {
+    label: "API Key",
+    description: "Authenticate with an API key",
+  },
+  inputs: {
+    apiKey: {
+      label: "API Key",
+      placeholder: "Your API key",
+      type: "password",
+      required: true,
+      shown: true,
+    },
+  },
+});
+
+const myAction = action({
+  display: {
+    label: "Get Record",
+    description: "Fetch a single record by ID",
+  },
+  inputs: {
+    connection: input({
+      label: "Connection",
+      type: "connection",
+      required: true,
+    }),
+    recordId: input({
+      label: "Record ID",
+      type: "string",
+      required: true,
+    }),
+  },
+  perform: async (context, params) => {
+    return { data: { id: params.recordId } };
+  },
+});
+
+export default component({
+  key: "myComponent",
+  display: {
+    label: "My Component",
+    description: "A sample custom component",
+    iconPath: "icon.png",
+  },
+  actions: { myAction },
+  connections: [myConnection],
+  hooks: {
+    error: (error) => {
+      // Transform or log errors globally
+      throw error;
+    },
+  },
+  documentationUrl: "https://example.com/docs/my-component",
+});
+```
+
+## Related
+
+- [`action`](/api-reference/action) — Define an action within a component
+- [`trigger`](/api-reference/trigger) — Define a trigger within a component
+- [`pollingTrigger`](/api-reference/polling-trigger) — Define a polling trigger
+- [`dataSource`](/api-reference/data-source) — Define a data source
+- [`connection`](/api-reference/connection) — Define a connection

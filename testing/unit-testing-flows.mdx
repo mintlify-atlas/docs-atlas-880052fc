@@ -1,0 +1,337 @@
+---
+title: Unit testing flows
+description: Test code-native integration flows end-to-end using invokeFlow() and createMockContextComponents().
+---
+
+`invokeFlow()` lets you unit test an entire code-native integration `Flow` by running both its trigger (`onTrigger`) and execution (`onExecution`) functions in sequence. You can provide config var values, context overrides, and partial trigger payloads.
+
+## `invokeFlow()` function
+
+### Signature
+
+```typescript
+invokeFlow<
+  TInputs,
+  TActionInputs,
+  TConfigVars,
+  TConfigVarValues,
+  TPayload,
+  TAllowsBranching,
+  TResult,
+>(
+  flow: Flow<TInputs, TActionInputs, TPayload, TAllowsBranching, TResult>,
+  options?: {
+    configVars?: TConfigVarValues;
+    context?: Partial<ActionContext<TConfigVars>>;
+    payload?: Partial<TriggerPayload>;
+  },
+): Promise<InvokeReturn<ActionPerformReturn<false, unknown>>>
+```
+
+<ParamField path="flow" type="Flow" required>
+  The `Flow` object returned by the `flow()` builder function.
+</ParamField>
+
+<ParamField path="options.configVars" type="Record<string, string | ConnectionValue>">
+  Config var values keyed by config var name. String values are passed through directly. `ConnectionValue` objects (from `createConnection()` or `connectionValue()`) are recognized by the presence of a `fields` key.
+</ParamField>
+
+<ParamField path="options.context" type="Partial<ActionContext>">
+  Optional partial context overrides merged on top of the auto-generated mock context.
+</ParamField>
+
+<ParamField path="options.payload" type="Partial<TriggerPayload>">
+  Partial trigger payload overrides. Merged with `defaultTriggerPayload()`.
+</ParamField>
+
+### Return value
+
+`invokeFlow()` resolves to `InvokeReturn<ActionPerformReturn<false, unknown>>`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `result` | `ActionPerformReturn<false, unknown>` | The value returned by `onExecution` |
+| `loggerMock` | `ActionLogger` | Spy-backed logger for asserting log calls |
+
+## How `invokeFlow()` works
+
+`invokeFlow()` replicates the runtime execution order:
+
+1. Builds a mock `ActionContext` with any `configVars` and `context` overrides you provide.
+2. Merges your `payload` with `defaultTriggerPayload()`.
+3. If the flow defines an `onTrigger` function, calls it and uses its returned `payload` as the input to `onExecution`.
+4. Calls `onExecution` and returns the result.
+
+## Basic flow test
+
+A flow with no custom trigger uses the default webhook trigger. The body data from the trigger payload is available at `params.onTrigger.results.body.data`:
+
+```typescript basic-flow.test.ts
+import { describe, expect, it } from "vitest";
+import { flow } from "@prismatic-io/spectral";
+import { invokeFlow } from "@prismatic-io/spectral/dist/testing";
+
+const basicFlow = flow({
+  name: "Basic Flow",
+  stableKey: "basic-flow",
+  description: "This is a basic flow",
+  onExecution: async (context, params) => {
+    return Promise.resolve({ data: params.onTrigger.results.body.data });
+  },
+});
+
+describe("basicFlow", () => {
+  it("uses default trigger payload body", async () => {
+    const { result } = await invokeFlow(basicFlow, {});
+    // defaultTriggerPayload body.data is JSON.stringify({ foo: "bar" })
+    expect(result).toMatchObject({ data: JSON.stringify({ foo: "bar" }) });
+  });
+
+  it("supports mocking trigger payload", async () => {
+    const testPayload = { hello: "world" };
+    const { result } = await invokeFlow(basicFlow, {
+      payload: { body: { data: testPayload } },
+    });
+    expect(result).toMatchObject({ data: testPayload });
+  });
+});
+```
+
+## Providing config var values
+
+Pass string config vars and connection config vars through the `configVars` option:
+
+<CodeGroup>
+
+```typescript string-config-var.test.ts
+import { describe, expect, it } from "vitest";
+import { flow } from "@prismatic-io/spectral";
+import { invokeFlow } from "@prismatic-io/spectral/dist/testing";
+
+const configVarFlow = flow({
+  name: "Config Var Flow",
+  stableKey: "config-var-flow",
+  description: "Reads a string config var",
+  onExecution: async (context) => {
+    return Promise.resolve({ data: context.configVars["API Endpoint"] });
+  },
+});
+
+describe("configVarFlow", () => {
+  it("receives string config var", async () => {
+    const { result } = await invokeFlow(configVarFlow, {
+      configVars: { "API Endpoint": "https://staging.example.com" },
+    });
+    expect(result).toMatchObject({ data: "https://staging.example.com" });
+  });
+});
+```
+
+```typescript connection-config-var.test.ts
+import { describe, expect, it } from "vitest";
+import { flow } from "@prismatic-io/spectral";
+import {
+  invokeFlow,
+  connectionValue,
+  defaultConnectionValueEnvironmentVariable,
+} from "@prismatic-io/spectral/dist/testing";
+
+const connectionFlow = flow({
+  name: "Connection Flow",
+  stableKey: "connection-flow",
+  description: "This is a connection flow",
+  onExecution: async (context) => {
+    return Promise.resolve({ data: context.configVars });
+  },
+});
+
+describe("connectionFlow", () => {
+  it("receives connection config var", async () => {
+    const accessToken = "foobarbazzle";
+    const value = {
+      fields: {},
+      token: { access_token: accessToken },
+    };
+    // Set the env var so connectionValue() can read it
+    process.env[defaultConnectionValueEnvironmentVariable] = JSON.stringify(value);
+
+    const { result } = await invokeFlow(connectionFlow, {
+      configVars: {
+        "A Connection": connectionValue(),
+      },
+    });
+    expect(result).toMatchObject({ data: { "A Connection": value } });
+  });
+});
+```
+
+</CodeGroup>
+
+<Note>
+  `connectionValue()` reads `process.env.PRISMATIC_CONNECTION_VALUE` by default. You can pass a custom environment variable name: `connectionValue("MY_CONN_VAR")`.
+</Note>
+
+## Testing flows with a custom `onTrigger`
+
+When the flow defines an `onTrigger`, `invokeFlow()` calls it first and forwards its returned payload to `onExecution`:
+
+```typescript custom-trigger-flow.test.ts
+import { describe, expect, it } from "vitest";
+import { flow } from "@prismatic-io/spectral";
+import { invokeFlow } from "@prismatic-io/spectral/dist/testing";
+import type { TriggerBaseResult, TriggerPayload } from "@prismatic-io/spectral";
+
+const flowWithTrigger = flow({
+  name: "My flow 1",
+  stableKey: "my-flow-1",
+  description: "Flow with a custom trigger",
+  onTrigger: async (context, payload, params) => {
+    const result: TriggerBaseResult<TriggerPayload> = {
+      payload: { ...payload, body: { data: "from onTrigger" } },
+    };
+    return Promise.resolve(result);
+  },
+  onExecution: async (context, params) => {
+    return Promise.resolve({ data: params.onTrigger.results.body.data });
+  },
+  onInstanceDeploy: async (context, params) => Promise.resolve({}),
+  onInstanceDelete: async (context, params) => Promise.resolve({}),
+});
+
+describe("flowWithTrigger", () => {
+  it("uses value set by onTrigger", async () => {
+    const { result } = await invokeFlow(flowWithTrigger, {});
+    expect(result).toMatchObject({ data: "from onTrigger" });
+  });
+});
+```
+
+## Mocking component actions with `createMockContextComponents()`
+
+When a flow invokes other components via `context.components`, use `createMockContextComponents()` to inject mock implementations. By default it returns each action's `examplePayload`; pass explicit overrides for actions that need custom behavior.
+
+### How it works
+
+`createMockContextComponents(registry, mocks?)` takes:
+
+1. **`registry`** — an object mapping component keys to their `ComponentManifest`-shaped `actions` map. This is typically the `componentRegistry` object from your CNI.
+2. **`mocks.actions`** — an optional nested object keyed as `{ [componentKey]: { [actionKey]: () => Promise<any> } }`. Actions listed here override the default `examplePayload` response.
+
+```typescript mock-context-components.test.ts
+import { describe, expect, it } from "vitest";
+import { flow } from "@prismatic-io/spectral";
+import {
+  invokeFlow,
+  createMockContextComponents,
+} from "@prismatic-io/spectral/dist/testing";
+import { componentRegistry } from "./src/componentRegistry";
+
+const myFlow = flow({
+  name: "My Flow",
+  stableKey: "my-flow",
+  description: "Calls another component action",
+  onExecution: async (context, params) => {
+    // context.components.myComponent.fetchData is mocked below
+    const response = await context.components.myComponent.fetchData({
+      endpoint: "https://api.example.com/data",
+    });
+    return { data: response.data };
+  },
+});
+
+describe("myFlow", () => {
+  it("uses mocked component action", async () => {
+    const components = createMockContextComponents(componentRegistry, {
+      actions: {
+        myComponent: {
+          fetchData: () =>
+            Promise.resolve({ data: "mocked response" }),
+        },
+      },
+    });
+
+    const { result } = await invokeFlow(myFlow, {
+      context: { components },
+    });
+
+    expect(result).toMatchObject({ data: "mocked response" });
+  });
+
+  it("falls back to examplePayload for unmocked actions", async () => {
+    // No overrides — every action returns its examplePayload
+    const components = createMockContextComponents(componentRegistry);
+
+    const { result } = await invokeFlow(myFlow, {
+      context: { components },
+    });
+
+    // result.data matches the examplePayload defined in the manifest
+    expect(result.data).toBeDefined();
+  });
+});
+```
+
+<Tip>
+  When testing a flow in isolation, override only the component actions that produce values your flow's logic branches on. Let other actions fall back to their `examplePayload` to keep tests focused.
+</Tip>
+
+## Complete example: integration with config vars and mocked components
+
+```typescript integration-flow.test.ts
+import { describe, expect, it } from "vitest";
+import {
+  flow,
+  configPage,
+  configVar,
+  connectionConfigVar,
+  integration,
+} from "@prismatic-io/spectral";
+import {
+  invokeFlow,
+  connectionValue,
+  defaultConnectionValueEnvironmentVariable,
+  createMockContextComponents,
+} from "@prismatic-io/spectral/dist/testing";
+import { componentRegistry } from "./src/componentRegistry";
+
+const myFlow = flow({
+  name: "Order Sync Flow",
+  stableKey: "order-sync-flow",
+  description: "Syncs orders from the trigger payload",
+  onExecution: async (context, params) => {
+    const orderId = params.onTrigger.results.body.data.orderId;
+    return { data: { synced: true, orderId } };
+  },
+});
+
+describe("order sync flow", () => {
+  it("syncs an order from the payload", async () => {
+    const accessToken = "test-token-abc";
+    process.env[defaultConnectionValueEnvironmentVariable] = JSON.stringify({
+      fields: {},
+      token: { access_token: accessToken },
+    });
+
+    const components = createMockContextComponents(componentRegistry, {
+      actions: {
+        httpClient: {
+          post: () => Promise.resolve({ data: { success: true } }),
+        },
+      },
+    });
+
+    const { result } = await invokeFlow(myFlow, {
+      configVars: {
+        "API Connection": connectionValue(),
+        "Target Endpoint": "https://erp.example.com/orders",
+      },
+      context: { components },
+      payload: {
+        body: { data: { orderId: "ORD-9876" } },
+      },
+    });
+
+    expect(result).toMatchObject({ data: { synced: true, orderId: "ORD-9876" } });
+  });
+});
+```

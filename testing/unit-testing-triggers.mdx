@@ -1,0 +1,300 @@
+---
+title: Unit testing triggers
+description: Test custom component trigger perform functions, lifecycle hooks, and payload handling using invokeTrigger() or the ComponentTestHarness.
+---
+
+Trigger tests verify that your trigger's `perform` function correctly processes incoming webhook payloads and that lifecycle hooks (`onInstanceDeploy`, `onInstanceDelete`) run without errors. Spectral provides the `invokeTrigger()` standalone function and the `ComponentTestHarness` created by `createHarness()`.
+
+## `invokeTrigger()` function
+
+`invokeTrigger()` calls a trigger's `perform` function. It merges a `defaultTriggerPayload()` with any overrides you provide, and builds a complete mock `ActionContext` automatically.
+
+### Signature
+
+```typescript
+invokeTrigger<TInputs, TConfigVars, TAllowsBranching, TResult>(
+  trigger: TriggerDefinition<TInputs, TConfigVars, TAllowsBranching, TResult>,
+  context?: Partial<ActionContext<TConfigVars>>,
+  payload?: TriggerPayload,
+  params?: ActionInputParameters<TInputs>,
+): Promise<InvokeReturn<TResult>>
+```
+
+<ParamField path="trigger" type="TriggerDefinition" required>
+  The trigger definition object to test.
+</ParamField>
+
+<ParamField path="context" type="Partial<ActionContext>">
+  Optional partial context overrides merged on top of the mock context.
+</ParamField>
+
+<ParamField path="payload" type="TriggerPayload">
+  Partial trigger payload. Fields you provide override corresponding fields in `defaultTriggerPayload()`. Omitted fields use the defaults.
+</ParamField>
+
+<ParamField path="params" type="ActionInputParameters">
+  Input parameter values for the trigger. Defaults to an empty object.
+</ParamField>
+
+## `defaultTriggerPayload()`
+
+When you call `invokeTrigger()` without a custom payload, it uses this default structure:
+
+```typescript
+{
+  headers: {
+    "content-type": "application/json",
+  },
+  queryParameters: {},
+  rawBody: {
+    data: { foo: "bar" },
+    contentType: "application/json",
+  },
+  body: {
+    data: JSON.stringify({ foo: "bar" }),
+    contentType: "application/json",
+  },
+  pathFragment: "",
+  webhookUrls: {
+    "Flow 1": "https://example.com",
+  },
+  webhookApiKeys: {
+    "Flow 1": ["example-123", "example-456"],
+  },
+  invokeUrl: "https://example.com",
+  executionId: "executionId",
+  customer: {
+    id: "customerId",
+    name: "Customer 1",
+    externalId: "1234",
+  },
+  instance: {
+    id: "instanceId",
+    name: "Instance 1",
+  },
+  user: {
+    id: "userId",
+    email: "user@example.com",
+    name: "User 1",
+    externalId: "1234",
+  },
+  integration: {
+    id: "integrationId",
+    name: "Integration 1",
+    versionSequenceId: "1234",
+    externalVersion: "1.0.0",
+  },
+  flow: {
+    id: "flowId",
+    name: "Flow 1",
+  },
+  startedAt: "<current ISO timestamp>",
+  globalDebug: false,
+}
+```
+
+You can import `defaultTriggerPayload` directly if you need to build a payload starting from this shape:
+
+```typescript
+import { defaultTriggerPayload } from "@prismatic-io/spectral/dist/testing";
+
+const payload = {
+  ...defaultTriggerPayload(),
+  headers: { "x-custom-header": "my-value" },
+};
+```
+
+## Basic trigger test
+
+```typescript trigger.test.ts
+import { describe, expect, it } from "vitest";
+import { trigger } from "@prismatic-io/spectral";
+import { invokeTrigger } from "@prismatic-io/spectral/dist/testing";
+
+const branchingTrigger = trigger({
+  display: { label: "Branching", description: "Branching" },
+  allowsBranching: true,
+  staticBranchNames: ["Foo", "Bar"],
+  scheduleSupport: "invalid",
+  synchronousResponseSupport: "invalid",
+  inputs: {},
+  perform: async (context, payload) =>
+    Promise.resolve({ payload, branch: "Foo" }),
+});
+
+describe("branchingTrigger", () => {
+  it("branches to Foo", async () => {
+    const {
+      result: { branch },
+    } = await invokeTrigger(branchingTrigger);
+    expect(branch).toStrictEqual("Foo");
+  });
+});
+```
+
+## Overriding payload fields
+
+Pass a partial `TriggerPayload` to override only the fields relevant to your test. The rest are filled from `defaultTriggerPayload()`:
+
+```typescript payload-override.test.ts
+import { describe, expect, it } from "vitest";
+import { invokeTrigger } from "@prismatic-io/spectral/dist/testing";
+import { myTrigger } from "./src/triggers";
+
+describe("myTrigger payload handling", () => {
+  it("processes a custom event type header", async () => {
+    const { result } = await invokeTrigger(
+      myTrigger,
+      undefined, // use default context
+      {
+        headers: { "x-event-type": "order.created" },
+        body: { data: JSON.stringify({ orderId: 42 }) },
+      },
+    );
+    expect(result.payload?.headers["x-event-type"]).toBe("order.created");
+  });
+});
+```
+
+## Testing with the harness
+
+`ComponentTestHarness.trigger()` invokes a trigger by its key string within an assembled component. Input defaults and `clean` functions are applied automatically.
+
+```typescript harness-trigger.test.ts
+import { describe, expect, it } from "vitest";
+import { createHarness } from "@prismatic-io/spectral/dist/testing";
+import myComponent from "./src";
+import { testConnection } from "./src/connections";
+
+process.env.PRISMATIC_CONNECTION_VALUE = JSON.stringify({
+  fields: { authorizeUrl: "https://example.com/auth" },
+  token: { access_token: "access", refresh_token: "refresh" },
+});
+
+const harness = createHarness(myComponent);
+
+describe("fooTrigger via harness", () => {
+  it("invokes and returns a payload", async () => {
+    const result = await harness.trigger("fooTrigger", undefined, {
+      connectionInput: harness.connectionValue(testConnection),
+    });
+    expect(result?.payload).toBeDefined();
+  });
+
+  it("cleans numeric string inputs", async () => {
+    const result = await harness.trigger("cleanTrigger", undefined, {
+      connectionInput: harness.connectionValue(testConnection),
+      cleanInput: "200",
+    });
+    expect(result?.payload).toBeDefined();
+    expect(result).toMatchObject({
+      params: { cleanInput: 200 },
+    });
+  });
+});
+```
+
+### Harness trigger method signature
+
+```typescript
+harness.trigger(
+  key: string,
+  payload?: Partial<TriggerPayload>,
+  params?: Record<string, unknown>,
+  context?: Partial<ActionContext>,
+): Promise<TriggerResult>
+```
+
+<ParamField path="key" type="string" required>
+  The trigger's key as registered on the component (e.g., `"fooTrigger"`).
+</ParamField>
+
+<ParamField path="payload" type="Partial<TriggerPayload>">
+  Partial payload overrides. Merged with `defaultTriggerPayload()`.
+</ParamField>
+
+<ParamField path="params" type="Record<string, unknown>">
+  Input values keyed by input name. Defaults are applied for omitted inputs.
+</ParamField>
+
+<ParamField path="context" type="Partial<ActionContext>">
+  Optional partial context overrides.
+</ParamField>
+
+## Testing lifecycle hooks
+
+### `triggerOnInstanceDeploy()`
+
+Call this method to execute the `onInstanceDeploy` function registered on a trigger:
+
+```typescript on-instance-deploy.test.ts
+import { describe, expect, it } from "vitest";
+import { createHarness } from "@prismatic-io/spectral/dist/testing";
+import myComponent from "./src";
+
+const harness = createHarness(myComponent);
+
+describe("webhookTrigger lifecycle", () => {
+  it("runs onInstanceDeploy without throwing", async () => {
+    await expect(
+      harness.triggerOnInstanceDeploy("webhookTrigger", {
+        webhookUrl: "https://api.example.com/webhook",
+      }),
+    ).resolves.not.toThrow();
+  });
+});
+```
+
+### `triggerOnInstanceDelete()`
+
+Call this method to execute the `onInstanceDelete` function registered on a trigger:
+
+```typescript on-instance-delete.test.ts
+import { describe, expect, it } from "vitest";
+import { createHarness } from "@prismatic-io/spectral/dist/testing";
+import myComponent from "./src";
+
+const harness = createHarness(myComponent);
+
+describe("webhookTrigger lifecycle", () => {
+  it("runs onInstanceDelete without throwing", async () => {
+    await expect(
+      harness.triggerOnInstanceDelete("webhookTrigger"),
+    ).resolves.not.toThrow();
+  });
+});
+```
+
+<Warning>
+  `triggerOnInstanceDeploy()` and `triggerOnInstanceDelete()` throw if the trigger does not define the corresponding lifecycle function.
+</Warning>
+
+## Choosing between `invokeTrigger()` and the harness
+
+<Tabs>
+  <Tab title="invokeTrigger()">
+    Best for testing a specific trigger definition in isolation with full type safety.
+
+    ```typescript
+    import { invokeTrigger } from "@prismatic-io/spectral/dist/testing";
+    import { myTrigger } from "./src/triggers";
+
+    const { result } = await invokeTrigger(myTrigger, undefined, {
+      body: { data: "{ \"event\": \"order.created\" }" },
+    });
+    ```
+  </Tab>
+  <Tab title="createHarness()">
+    Best for testing a trigger as part of an assembled component, with automatic input defaulting, `clean` functions, and connection resolution.
+
+    ```typescript
+    import { createHarness } from "@prismatic-io/spectral/dist/testing";
+    import myComponent from "./src";
+
+    const harness = createHarness(myComponent);
+    const result = await harness.trigger("myTrigger", {
+      headers: { "x-event-type": "order.created" },
+    });
+    ```
+  </Tab>
+</Tabs>

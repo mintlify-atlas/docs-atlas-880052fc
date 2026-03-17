@@ -1,0 +1,193 @@
+---
+title: 'createConnection / connectionValue'
+description: 'Create test connection values for unit testing component actions and triggers.'
+---
+
+## Import
+
+```typescript
+import {
+  createConnection,
+  connectionValue,
+  defaultConnectionValueEnvironmentVariable,
+} from "@prismatic-io/spectral/dist/testing";
+```
+
+## createConnection
+
+### Signature
+
+```typescript
+export const createConnection = <T extends ConnectionDefinition>(
+  { key }: T,
+  values: Record<string, unknown>,
+  tokenValues?: Record<string, unknown>,
+  displayName?: string,
+): ConnectionValue
+```
+
+Constructs a `ConnectionValue` inline — no environment variable required. Use this when you want to hard-code test credentials directly in a test file.
+
+### Parameters
+
+<ParamField path="definition" type="ConnectionDefinition" required>
+  The connection definition object. Only the `key` property is read to populate `ConnectionValue.key`.
+</ParamField>
+
+<ParamField path="values" type="Record<string, unknown>" required>
+  Field values for the connection. Keys should match the input keys declared on the connection definition.
+
+  ```typescript
+  { username: "alice", password: "secret" }
+  ```
+</ParamField>
+
+<ParamField path="tokenValues" type="Record<string, unknown>">
+  Optional OAuth 2.0 token fields. Set `access_token` here for OAuth connections.
+
+  ```typescript
+  { access_token: "ya29.abc", refresh_token: "1//xyz", expires_in: 3600 }
+  ```
+</ParamField>
+
+<ParamField path="displayName" type="string">
+  Optional display name used as `configVarKey`. Defaults to an empty string.
+</ParamField>
+
+### Return value
+
+<ResponseField name="ConnectionValue" type="object" required>
+  A `ConnectionValue` object ready to pass as an input to `invoke`, `harness.action`, etc.
+
+  <Expandable title="ConnectionValue fields">
+    <ResponseField name="key" type="string" required>
+      The connection definition's `key`.
+    </ResponseField>
+    <ResponseField name="configVarKey" type="string" required>
+      The `displayName` argument, or an empty string if not provided.
+    </ResponseField>
+    <ResponseField name="fields" type="Record<string, unknown>" required>
+      The `values` argument passed to `createConnection`.
+    </ResponseField>
+    <ResponseField name="token" type="Record<string, unknown>">
+      The `tokenValues` argument, if provided.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## connectionValue
+
+### Signature
+
+```typescript
+export const connectionValue = (
+  envVarKey = defaultConnectionValueEnvironmentVariable,
+): ConnectionValue
+```
+
+Reads a `ConnectionValue` from an environment variable. The environment variable must contain a JSON-serialized object. Throws an `Error` if the variable is not set.
+
+### Parameters
+
+<ParamField path="envVarKey" type="string" default="PRISMATIC_CONNECTION_VALUE">
+  The name of the environment variable to read. Defaults to `PRISMATIC_CONNECTION_VALUE`.
+</ParamField>
+
+### Return value
+
+<ResponseField name="ConnectionValue" type="object" required>
+  A `ConnectionValue` parsed from the environment variable, with `key` set to an empty string.
+</ResponseField>
+
+---
+
+## defaultConnectionValueEnvironmentVariable
+
+```typescript
+export const defaultConnectionValueEnvironmentVariable = "PRISMATIC_CONNECTION_VALUE";
+```
+
+The name of the environment variable that `connectionValue()` and `ComponentTestHarness.connectionValue()` read by default.
+
+---
+
+## Examples
+
+<CodeGroup>
+
+```typescript createConnection — inline credentials
+import { connection } from "@prismatic-io/spectral";
+import { createConnection, invoke } from "@prismatic-io/spectral/dist/testing";
+
+const apiKeyConnection = connection({
+  key: "apiKeyConnection",
+  display: { label: "API Key", description: "" },
+  inputs: {
+    apiKey: { label: "API Key", type: "string", required: true },
+  },
+});
+
+const testConn = createConnection(apiKeyConnection, {
+  apiKey: "test-key-abc123",
+});
+
+const { result } = await invoke(myAction, { connection: testConn });
+```
+
+```typescript createConnection — OAuth connection with token
+import { createConnection, invoke } from "@prismatic-io/spectral/dist/testing";
+
+const testConn = createConnection(
+  oauthConnectionDef,
+  { clientId: "client-id", clientSecret: "client-secret" },
+  { access_token: "ya29.test-token", expires_in: 3600 },
+);
+
+const { result } = await invoke(myOAuthAction, { connection: testConn });
+```
+
+```typescript connectionValue — from environment variable
+import {
+  connectionValue,
+  defaultConnectionValueEnvironmentVariable,
+  invokeFlow,
+} from "@prismatic-io/spectral/dist/testing";
+
+// Set before running tests (e.g. in a .env file or beforeAll)
+process.env[defaultConnectionValueEnvironmentVariable] = JSON.stringify({
+  fields: { apiKey: "live-api-key" },
+  token: { access_token: "live-access-token" },
+});
+
+const { result } = await invokeFlow(myFlow, {
+  configVars: {
+    "My API Connection": connectionValue(),
+  },
+});
+```
+
+```typescript Harness — connectionValue method
+import { createHarness } from "@prismatic-io/spectral/dist/testing";
+
+// process.env.PRISMATIC_CONNECTION_VALUE must be set
+const harness = createHarness(myComponent);
+
+const result = await harness.action("fetchData", {
+  connection: harness.connectionValue(myConnectionDef),
+  resourceId: "abc-123",
+});
+```
+
+</CodeGroup>
+
+<Warning>
+  Never commit real credentials to source control. Use environment variables or a secrets manager when testing with live credentials. For CI environments, inject the `PRISMATIC_CONNECTION_VALUE` variable from your secrets store.
+</Warning>
+
+## Related
+
+- [invoke](/api-reference/testing/invoke) — pass a `ConnectionValue` as an action input
+- [createHarness](/api-reference/testing/create-harness) — `harness.connectionValue()` reads the same env var
+- [invokeFlow](/api-reference/testing/invoke-flow) — pass connection values in `configVars`

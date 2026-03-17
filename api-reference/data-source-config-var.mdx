@@ -1,0 +1,252 @@
+---
+title: 'dataSourceConfigVar()'
+description: 'Creates a data source-backed config variable for code-native integrations.'
+---
+
+The `dataSourceConfigVar()` function defines a config variable whose values are dynamically populated by a **data source** — either an inline data source function or a reference to a data source in a registered component. This is useful for config variables whose valid values depend on the customer's account data (e.g., a list of available projects, channels, or mailboxes).
+
+A data source config var can be defined in two ways:
+
+- **Data source definition** — an inline function with a `perform` handler that fetches and returns values dynamically.
+- **Data source reference** — a reference to a data source action defined in a component from the `componentRegistry`.
+
+## Function signature
+
+```typescript
+export const dataSourceConfigVar = <TDataSourceConfigVar extends DataSourceConfigVar>(
+  definition: TDataSourceConfigVar,
+): TDataSourceConfigVar
+```
+
+## Parameters
+
+<ParamField path="definition" type="DataSourceConfigVar" required>
+  An object describing the data source config variable.
+
+  <Expandable title="Common fields" defaultOpen>
+    <ParamField path="stableKey" type="string" required>
+      A unique, unchanging identifier for this config variable.
+    </ParamField>
+
+    <ParamField path="dataSourceType" type="DataSourceType" required>
+      The type of data returned by the data source. This determines the UI control rendered for the config variable.
+
+      | Value | Description |
+      |---|---|
+      | `"picklist"` | Returns a list of selectable string values |
+      | `"objectSelection"` | Returns a list of selectable objects |
+      | `"objectFieldMap"` | Returns a field mapping structure |
+      | `"jsonForm"` | Returns a JSON Form schema and UI schema |
+      | `"string"` | Returns a single string value |
+    </ParamField>
+
+    <ParamField path="description" type="string">
+      Human-readable description for this config variable.
+    </ParamField>
+
+    <ParamField path="collectionType" type="'valuelist' | 'keyvaluelist'">
+      When set, the data source returns a collection of values. Available only for collection-compatible data source types.
+    </ParamField>
+
+    <ParamField path="permissionAndVisibilityType" type="'customer' | 'embedded' | 'organization'" default="customer">
+      Controls who can view and edit this config variable.
+    </ParamField>
+
+    <ParamField path="visibleToOrgDeployer" type="boolean" default="true">
+      Whether this config variable is visible to an organization deployer.
+    </ParamField>
+  </Expandable>
+
+  <Expandable title="Data source definition fields (inline function)">
+    <ParamField path="perform" type="DataSourcePerformFunction" required>
+      An async function that fetches and returns data for this config variable. Called whenever the config wizard loads or refreshes this variable.
+
+      The function receives `(context, params)` and must return an object matching the `dataSourceType`:
+      - `picklist` → `{ result: PickList }`
+      - `objectSelection` → `{ result: ObjectSelection }`
+      - `objectFieldMap` → `{ result: ObjectFieldMap }`
+      - `jsonForm` → `{ result: JSONForm }`
+    </ParamField>
+
+    <ParamField path="inputs" type="Record<string, InputFieldDefinition>">
+      Input fields for the data source function, similar to action inputs.
+    </ParamField>
+
+    <ParamField path="validationMode" type="ValidationMode">
+      Validation mode for `dataSourceType: "jsonForm"` data source config variables.
+    </ParamField>
+
+    <ParamField path="dataSourceReset" type="DataSourceReset">
+      Determines when the data source should reset when dependent config variables change.
+
+      <Expandable title="DataSourceReset fields">
+        <ParamField path="mode" type="'prompt' | 'always'" required>
+          - `"prompt"` — Ask the user to reset when a dependency changes.
+          - `"always"` — Automatically reset when a dependency changes.
+        </ParamField>
+        <ParamField path="dependencies" type="string[]">
+          Names of config variables that should trigger a reset when changed.
+        </ParamField>
+      </Expandable>
+    </ParamField>
+  </Expandable>
+
+  <Expandable title="Data source reference fields (component data source)">
+    <ParamField path="dataSource" type="ComponentReference" required>
+      A reference to a data source defined in a component from the `componentRegistry`. Includes the component key, data source key, and input values.
+
+      <Expandable title="dataSource fields">
+        <ParamField path="component" type="string" required>
+          The key of the component.
+        </ParamField>
+        <ParamField path="key" type="string" required>
+          The key of the data source within the component.
+        </ParamField>
+        <ParamField path="values" type="object">
+          Input values for the data source, each as a `ValueExpression`, `ConfigVarExpression`, or `TemplateExpression`.
+        </ParamField>
+      </Expandable>
+    </ParamField>
+
+    <ParamField path="validationMode" type="ValidationMode">
+      Validation mode for JSON Form data sources.
+    </ParamField>
+
+    <ParamField path="dataSourceReset" type="Omit<DataSourceReset, 'dependencies'>">
+      Reset configuration for this data source reference. Only `mode` is available (no `dependencies`).
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Return type
+
+<ResponseField name="dataSourceConfigVar" type="TDataSourceConfigVar">
+  The same data source config variable definition object passed in, unchanged. Used for type inference.
+</ResponseField>
+
+<Tip>
+  When using a data source reference backed by a component connection, the data source can automatically use a connection config variable from the same config page by passing a `ConfigVarExpression` as an input value.
+</Tip>
+
+## Examples
+
+<CodeGroup>
+
+```typescript Inline picklist data source
+import {
+  configPage,
+  connectionConfigVar,
+  dataSourceConfigVar,
+} from "@prismatic-io/spectral";
+
+const settingsPage = configPage({
+  tagline: "Configure sync settings",
+  elements: {
+    "Acme Connection": connectionConfigVar({
+      stableKey: "acme-connection",
+      dataType: "connection",
+      inputs: {
+        apiKey: {
+          label: "API Key",
+          type: "password",
+          required: true,
+          clean: (v) => String(v),
+        },
+      },
+    }),
+    "Target Project": dataSourceConfigVar({
+      stableKey: "target-project",
+      dataSourceType: "picklist",
+      description: "Select the project to sync to.",
+      perform: async (context, params) => {
+        const connection = context.configVars["Acme Connection"];
+        const apiKey = connection.fields["apiKey"];
+        const response = await fetch("https://api.acme.com/projects", {
+          headers: { Authorization: `Bearer ${apiKey}` },
+        });
+        const projects = await response.json();
+        return {
+          result: projects.map((p: { id: string; name: string }) => ({
+            label: p.name,
+            value: p.id,
+          })),
+        };
+      },
+    }),
+  },
+});
+```
+
+```typescript Component data source reference
+import {
+  configPage,
+  connectionConfigVar,
+  dataSourceConfigVar,
+} from "@prismatic-io/spectral";
+
+const settingsPage = configPage({
+  tagline: "Configure sync settings",
+  elements: {
+    "Slack Connection": connectionConfigVar({
+      stableKey: "slack-connection",
+      dataType: "connection",
+      connection: {
+        component: "slack",
+        key: "oauth2",
+      },
+    }),
+    "Slack Channel": dataSourceConfigVar({
+      stableKey: "slack-channel",
+      dataSourceType: "picklist",
+      description: "Select a Slack channel.",
+      dataSource: {
+        component: "slack",
+        key: "selectChannel",
+        values: {
+          connection: { configVar: "Slack Connection" },
+        },
+      },
+    }),
+  },
+});
+```
+
+```typescript JSON Form data source
+import { configPage, dataSourceConfigVar } from "@prismatic-io/spectral";
+
+const formPage = configPage({
+  tagline: "Configure field mappings",
+  elements: {
+    "Field Mappings": dataSourceConfigVar({
+      stableKey: "field-mappings",
+      dataSourceType: "jsonForm",
+      description: "Map source fields to destination fields.",
+      validationMode: "ValidateAndShow",
+      perform: async (context, params) => {
+        return {
+          result: {
+            schema: {
+              type: "object",
+              properties: {
+                sourceField: { type: "string", title: "Source Field" },
+                destinationField: { type: "string", title: "Destination Field" },
+              },
+            },
+            uiSchema: {},
+            data: {},
+          },
+        };
+      },
+    }),
+  },
+});
+```
+
+</CodeGroup>
+
+## Related
+
+- [`configPage()`](/api-reference/config-page) — The page that contains this data source config variable.
+- [`configVar()`](/api-reference/config-var) — For static config variables that don't require a data source.
+- [`connectionConfigVar()`](/api-reference/connection-config-var) — For connection config variables.
+- [`componentManifest()`](/api-reference/component-manifest) — Register components whose data sources can be referenced.

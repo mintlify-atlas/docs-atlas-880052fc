@@ -1,0 +1,365 @@
+---
+title: 'Config wizard'
+description: 'Define multi-page configuration wizards in TypeScript using configPage(), configVar(), connectionConfigVar(), and dataSourceConfigVar().'
+---
+
+When a customer deploys an instance of your integration, Prismatic walks them through a config wizard. In a code-native integration you define each page of that wizard using `configPage()`, and each element on a page using `configVar()`, `connectionConfigVar()`, or `dataSourceConfigVar()`.
+
+Config pages are organized as named keys under the `configPages` (and optionally `userLevelConfigPages`) fields on your `integration()` call.
+
+## `configPage()`
+
+A config page groups related configuration elements together. Each page can have an optional tagline.
+
+```typescript
+import { configPage } from "@prismatic-io/spectral";
+
+const connectionPage = configPage({
+  tagline: "Connect to your Acme account",
+  elements: {
+    "Acme Connection": connectionConfigVar({
+      stableKey: "acme-connection",
+      dataType: "connection",
+      // connection definition...
+    }),
+  },
+});
+```
+
+**`ConfigPage` fields:**
+
+<ParamField path="elements" type="Record<string, string | ConfigVar>" required>
+  A map of element names to config variable definitions. String values render as read-only headings.
+</ParamField>
+
+<ParamField path="tagline" type="string">
+  Short descriptive text displayed beneath the page title in the wizard.
+</ParamField>
+
+## `configVar()`
+
+Use `configVar()` to create a typed configuration value that customers supply during deployment.
+
+```typescript
+import { configVar } from "@prismatic-io/spectral";
+
+configVar({
+  stableKey: "sync-interval",
+  dataType: "number",
+  defaultValue: 30,
+  description: "How often (in minutes) to poll for new records",
+})
+```
+
+### Common `StandardConfigVar` fields
+
+<ParamField path="stableKey" type="string" required>
+  A permanent, unique identifier for this config variable. Safe to keep even if you rename the element key.
+</ParamField>
+
+<ParamField path="dataType" type="ConfigVarDataType" required>
+  The data type. See [Data types](#data-types) for all supported values.
+</ParamField>
+
+<ParamField path="defaultValue" type="any">
+  Pre-populated value shown to the customer. The type must match `dataType`.
+</ParamField>
+
+<ParamField path="description" type="string">
+  Help text shown alongside the field in the wizard.
+</ParamField>
+
+<ParamField path="permissionAndVisibilityType" type="'customer' | 'embedded' | 'organization'">
+  Controls who can view and edit this variable.
+  - `customer` — Customers can view and edit. (default)
+  - `embedded` — Hidden from customers; set programmatically.
+  - `organization` — Org-managed; customers cannot edit.
+</ParamField>
+
+<ParamField path="visibleToOrgDeployer" type="boolean">
+  Whether the variable is visible to an organization deployer. Defaults to `true`.
+</ParamField>
+
+<ParamField path="collectionType" type="'valuelist' | 'keyvaluelist'">
+  Set to allow multiple values for this variable.
+</ParamField>
+
+## Data types
+
+The `dataType` field accepts the following values:
+
+| `dataType` | TypeScript default value type | Notes |
+|---|---|---|
+| `string` | `string` | Free text |
+| `number` | `number` | Numeric value |
+| `boolean` | `boolean` | True/false toggle |
+| `date` | `string` | ISO date string |
+| `timestamp` | `string` | ISO timestamp string |
+| `picklist` | `string` | Requires `pickList: string[]` |
+| `code` | `string` | Requires `codeLanguage: 'json' \| 'xml' \| 'html'` |
+| `schedule` | `string` | Cron expression |
+| `objectSelection` | `ObjectSelection` | Multi-object picker |
+| `objectFieldMap` | `ObjectFieldMap` | Field mapping UI |
+| `jsonForm` | `JSONForm` | JSON Schema-driven form |
+| `htmlElement` | `string` | Read-only HTML content |
+
+### Picklist example
+
+```typescript
+configVar({
+  stableKey: "log-level",
+  dataType: "picklist",
+  pickList: ["debug", "info", "warn", "error"],
+  defaultValue: "info",
+  description: "Verbosity of log output",
+})
+```
+
+### Code example
+
+```typescript
+configVar({
+  stableKey: "transform-script",
+  dataType: "code",
+  codeLanguage: "json",
+  description: "Custom JSON transformation template",
+})
+```
+
+## `connectionConfigVar()`
+
+Connection config variables hold authentication credentials. They appear as a credential-picker in the config wizard.
+
+```typescript
+import { connectionConfigVar, connection } from "@prismatic-io/spectral";
+
+const myConnection = connection({
+  key: "acme-basic-auth",
+  display: {
+    label: "Acme Basic Auth",
+    description: "Username and password for Acme API",
+  },
+  inputs: {
+    username: input({
+      label: "Username",
+      type: "string",
+      required: true,
+    }),
+    password: input({
+      label: "Password",
+      type: "password",
+      required: true,
+    }),
+  },
+});
+
+connectionConfigVar({
+  stableKey: "acme-credentials",
+  dataType: "connection",
+  ...myConnection,
+})
+```
+
+See [Connections](/code-native/connections) for full details on defining and using connections.
+
+## `dataSourceConfigVar()`
+
+Data source config variables populate a picklist, object selection, field map, or JSON Form dynamically by executing a `perform` function at wizard render time.
+
+```typescript
+import { dataSourceConfigVar } from "@prismatic-io/spectral";
+
+dataSourceConfigVar({
+  stableKey: "available-projects",
+  dataSourceType: "picklist",
+  description: "Select the project to sync",
+  perform: async (context, params) => {
+    const connection = context.configVars["Acme Connection"];
+    const projects = await fetchProjects(connection);
+    return {
+      result: projects.map((p) => ({ label: p.name, key: p.id })),
+    };
+  },
+})
+```
+
+**Key fields:**
+
+<ParamField path="stableKey" type="string" required>
+  Permanent identifier.
+</ParamField>
+
+<ParamField path="dataSourceType" type="DataSourceType" required>
+  Type of data source: `picklist`, `objectSelection`, `objectFieldMap`, `jsonForm`, etc.
+</ParamField>
+
+<ParamField path="perform" type="function" required>
+  Async function that returns the data to display. Receives `context` (including `configVars`) and `params`.
+</ParamField>
+
+<ParamField path="collectionType" type="'valuelist' | 'keyvaluelist'">
+  Allow multiple selections from the data source.
+</ParamField>
+
+## Config variable visibility
+
+Use `permissionAndVisibilityType` to control who can see and edit a config variable in the wizard:
+
+<Tabs>
+  <Tab title="customer (default)">
+    Visible and editable by customers during instance deployment.
+
+    ```typescript
+    configVar({
+      stableKey: "customer-setting",
+      dataType: "string",
+      permissionAndVisibilityType: "customer",
+    })
+    ```
+  </Tab>
+  <Tab title="embedded">
+    Hidden from customers. Value is set programmatically via the Embedded SDK or API.
+
+    ```typescript
+    configVar({
+      stableKey: "tenant-id",
+      dataType: "string",
+      permissionAndVisibilityType: "embedded",
+    })
+    ```
+  </Tab>
+  <Tab title="organization">
+    Managed by your organization. Customers see it but cannot change it.
+
+    ```typescript
+    configVar({
+      stableKey: "internal-api-key",
+      dataType: "string",
+      permissionAndVisibilityType: "organization",
+      defaultValue: "sk-internal-...",
+    })
+    ```
+  </Tab>
+</Tabs>
+
+## User-level config wizards
+
+Use `userLevelConfigPages` for configuration that individual users fill in after the instance is deployed — for example, per-user OAuth tokens.
+
+```typescript
+import { integration, configPage, connectionConfigVar } from "@prismatic-io/spectral";
+
+export default integration({
+  name: "Per-User OAuth",
+  flows: [/* ... */],
+
+  userLevelConfigPages: {
+    "Your Account": configPage({
+      tagline: "Connect your personal account",
+      elements: {
+        "User OAuth Connection": connectionConfigVar({
+          stableKey: "user-oauth",
+          dataType: "connection",
+          // OAuth connection definition...
+        }),
+      },
+    }),
+  },
+});
+```
+
+<Note>
+User-level config variables are available in `context.configVars` at flow execution time, just like instance-level variables.
+</Note>
+
+## Complete multi-page example
+
+```typescript
+import {
+  integration,
+  flow,
+  configPage,
+  configVar,
+  connectionConfigVar,
+  dataSourceConfigVar,
+  connection,
+  input,
+} from "@prismatic-io/spectral";
+
+const acmeConn = connection({
+  key: "acme-basic",
+  display: {
+    label: "Acme API",
+    description: "Credentials for the Acme REST API",
+  },
+  inputs: {
+    endpoint: input({ label: "API Endpoint", type: "string", required: true }),
+    apiKey: input({ label: "API Key", type: "password", required: true }),
+  },
+});
+
+export default integration({
+  name: "Acme Data Sync",
+
+  configPages: {
+    "Acme Connection": configPage({
+      tagline: "Authenticate with Acme",
+      elements: {
+        "Acme Credentials": connectionConfigVar({
+          stableKey: "acme-credentials",
+          dataType: "connection",
+          ...acmeConn,
+        }),
+      },
+    }),
+
+    "Sync Settings": configPage({
+      tagline: "Configure sync behavior",
+      elements: {
+        "Target Project": dataSourceConfigVar({
+          stableKey: "target-project",
+          dataSourceType: "picklist",
+          description: "Project to sync records into",
+          perform: async (context) => {
+            const conn = context.configVars["Acme Credentials"];
+            const projects = await fetchProjects(conn);
+            return { result: projects.map((p) => ({ label: p.name, key: p.id })) };
+          },
+        }),
+        "Sync Interval": configVar({
+          stableKey: "sync-interval",
+          dataType: "number",
+          defaultValue: 15,
+          description: "Polling interval in minutes",
+        }),
+        "Log Level": configVar({
+          stableKey: "log-level",
+          dataType: "picklist",
+          pickList: ["debug", "info", "warn", "error"],
+          defaultValue: "info",
+        }),
+        "Enable Debug Mode": configVar({
+          stableKey: "enable-debug",
+          dataType: "boolean",
+          defaultValue: false,
+          permissionAndVisibilityType: "organization",
+        }),
+      },
+    }),
+  },
+
+  flows: [
+    flow({
+      name: "Sync Records",
+      stableKey: "sync-records",
+      onExecution: async (context, params) => {
+        const conn = context.configVars["Acme Credentials"];
+        const project = context.configVars["Target Project"];
+        const interval = context.configVars["Sync Interval"];
+        console.log(`Syncing ${project} every ${interval} minutes`);
+        return { data: null };
+      },
+    }),
+  ],
+});
+```

@@ -1,0 +1,182 @@
+---
+title: 'Endpoint configuration'
+description: 'Control how inbound webhook requests are routed to flows using EndpointType and PreprocessFlowConfig in code-native integrations.'
+---
+
+By default each flow in an integration has its own dedicated webhook URL (`flow_specific` endpoint type). For more complex routing scenarios — such as a single inbound URL that dispatches to different flows based on payload content — Prismatic supports two additional endpoint types that require a preprocess flow configuration.
+
+## `EndpointType` values
+
+<ParamField path="endpointType" type="'flow_specific' | 'instance_specific' | 'shared_instance'">
+  Set on the `IntegrationDefinition`. Determines the URL shape that instances receive.
+</ParamField>
+
+| Value | Behavior |
+|---|---|
+| `flow_specific` | Each flow has its own URL. Requests go directly to the matching flow. This is the default. |
+| `instance_specific` | Each instance has one URL shared by all flows. A preprocess step routes requests. |
+| `shared_instance` | All instances of the integration share one URL. Routing is based on payload fields. |
+
+<Note>
+When `endpointType` is `instance_specific` or `shared_instance`, you must provide either `triggerPreprocessFlowConfig` on the integration or mark one flow as the preprocess flow using `preprocessFlowConfig`.
+</Note>
+
+## `PreprocessFlowConfig`
+
+The preprocess flow config tells Prismatic which fields in a trigger payload (or preprocess flow result) carry routing information.
+
+<ParamField path="flowNameField" type="string" required>
+  Path to the field in the payload that contains the name of the target flow. For example, `"body.data.event"` maps to `payload.body.data.event`.
+</ParamField>
+
+<ParamField path="externalCustomerIdField" type="string">
+  Path to the field that identifies the customer. Required when `endpointType` is `shared_instance`.
+</ParamField>
+
+<ParamField path="externalCustomerUserIdField" type="string">
+  Path to the field that identifies a specific customer user, for user-level routing.
+</ParamField>
+
+## Approach 1: `triggerPreprocessFlowConfig` (no preprocess flow)
+
+Use `triggerPreprocessFlowConfig` when the routing information is already present in the raw trigger payload, so no pre-processing step is needed.
+
+```typescript
+import { integration, flow } from "@prismatic-io/spectral";
+
+export default integration({
+  name: "Event Router",
+  endpointType: "instance_specific",
+  triggerPreprocessFlowConfig: {
+    // The 'event' field in the JSON body determines which flow runs
+    flowNameField: "body.data.event",
+  },
+  flows: [
+    flow({
+      name: "order.created",
+      stableKey: "order-created",
+      onExecution: async (context, params) => {
+        const order = params.onTrigger.results.body.data;
+        console.log("New order:", order);
+        return { data: null };
+      },
+    }),
+    flow({
+      name: "order.updated",
+      stableKey: "order-updated",
+      onExecution: async (context, params) => {
+        const order = params.onTrigger.results.body.data;
+        console.log("Updated order:", order);
+        return { data: null };
+      },
+    }),
+  ],
+});
+```
+
+In this example an inbound request with `{ "event": "order.created", ... }` is automatically routed to the `order.created` flow.
+
+<Warning>
+You cannot set both `triggerPreprocessFlowConfig` on the integration and also define a flow-level `preprocessFlowConfig`. Use one or the other.
+</Warning>
+
+## Approach 2: `preprocessFlowConfig` on a flow
+
+Use a dedicated preprocess flow when the routing decision requires computation — for example, decrypting a payload or calling an external system to resolve a customer ID.
+
+Mark exactly one flow with `preprocessFlowConfig`. That flow runs first for every inbound request, and its `onExecution` return value is inspected for routing fields.
+
+```typescript
+import { integration, flow } from "@prismatic-io/spectral";
+
+export default integration({
+  name: "Multi-tenant Router",
+  endpointType: "shared_instance",
+  flows: [
+    // The preprocess flow — runs first, returns routing info
+    flow({
+      name: "Route Request",
+      stableKey: "route-request",
+      preprocessFlowConfig: {
+        flowNameField: "flowName",
+        externalCustomerIdField: "customerId",
+      },
+      onExecution: async (context, params) => {
+        const body = params.onTrigger.results.body.data as Record<string, string>;
+
+        // Compute which flow and customer this belongs to
+        const customerId = body["tenantId"];
+        const eventType = body["type"];
+
+        return {
+          data: {
+            flowName: eventType,   // e.g. "contact.created"
+            customerId,            // matched to a deployed instance
+          },
+        };
+      },
+    }),
+
+    // Regular flows — invoked based on the preprocess result
+    flow({
+      name: "contact.created",
+      stableKey: "contact-created",
+      onExecution: async (context, params) => {
+        const contact = params.onTrigger.results.body.data;
+        console.log("New contact:", contact);
+        return { data: null };
+      },
+    }),
+  ],
+});
+```
+
+## Choosing an endpoint type
+
+<Steps>
+  <Step title="One URL per flow">
+    Use `flow_specific` (the default). No additional configuration required. Each flow receives its own dedicated webhook URL and handles its own trigger.
+  </Step>
+  <Step title="One URL per instance, multiple flows">
+    Use `instance_specific`. Every instance of your integration gets a single inbound URL. Add `triggerPreprocessFlowConfig` if the routing field is already in the payload, or define a preprocess flow if you need to compute the route.
+  </Step>
+  <Step title="One URL across all instances">
+    Use `shared_instance`. All customer instances share one URL. You must supply `externalCustomerIdField` in your preprocess config so Prismatic can identify which customer instance should handle each request.
+  </Step>
+</Steps>
+
+## Shared instance example with customer routing
+
+```typescript
+import { integration, flow } from "@prismatic-io/spectral";
+
+export default integration({
+  name: "Shared Webhook Receiver",
+  endpointType: "shared_instance",
+  triggerPreprocessFlowConfig: {
+    // The payload must contain both a customer identifier and a flow name
+    flowNameField: "body.data.eventType",
+    externalCustomerIdField: "body.data.orgId",
+  },
+  flows: [
+    flow({
+      name: "invoice.paid",
+      stableKey: "invoice-paid",
+      onExecution: async (context, params) => {
+        const invoice = params.onTrigger.results.body.data;
+        return { data: { processed: true, invoice } };
+      },
+    }),
+    flow({
+      name: "invoice.overdue",
+      stableKey: "invoice-overdue",
+      onExecution: async (context, params) => {
+        const invoice = params.onTrigger.results.body.data;
+        return { data: { alerted: true, invoice } };
+      },
+    }),
+  ],
+});
+```
+
+An inbound request containing `{ "orgId": "cust_123", "eventType": "invoice.paid", ... }` is routed to the `invoice.paid` flow of the instance deployed for customer `cust_123`.

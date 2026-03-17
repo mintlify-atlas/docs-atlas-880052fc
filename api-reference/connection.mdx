@@ -1,0 +1,174 @@
+---
+title: connection
+description: Define a connection that stores credentials and configuration for authenticating with an external service.
+---
+
+The `connection` function creates a connection definition for use in custom components and code-native integrations. Connections bundle a set of credential fields (such as an API key or base URL) that integration builders configure once and reference across multiple action steps.
+
+## Function signature
+
+```typescript
+function connection<T extends DefaultConnectionDefinition>(definition: T): T
+```
+
+## Parameters
+
+<ParamField path="definition" type="DefaultConnectionDefinition" required>
+  An object describing the connection. See fields below.
+</ParamField>
+
+### `DefaultConnectionDefinition` fields
+
+<ParamField path="definition.key" type="string" required>
+  A unique programmatic identifier for this connection type within the component.
+</ParamField>
+
+<ParamField path="definition.display" type="ConnectionDisplayDefinition" required>
+  Controls how the connection appears in the Prismatic UI.
+
+  <Expandable title="ConnectionDisplayDefinition fields">
+    <ParamField path="display.label" type="string" required>
+      Human-readable name for the connection (e.g., `"API Key"`).
+    </ParamField>
+    <ParamField path="display.description" type="string" required>
+      Describes what this connection is for.
+    </ParamField>
+    <ParamField path="display.icons" type="object">
+      Optional icon paths for the connection UI.
+      <Expandable title="icons fields">
+        <ParamField path="display.icons.avatarPath" type="string">
+          Path to an avatar icon, relative to the built component source.
+        </ParamField>
+        <ParamField path="display.icons.oauth2ConnectionIconPath" type="string">
+          Path to an icon for the OAuth "Connect" button, relative to the built component source.
+        </ParamField>
+      </Expandable>
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="definition.inputs" type="Record<string, ConnectionInput>" required>
+  A map of input field definitions that the integration builder fills in to configure this connection. Uses `ConnectionInput` — a variant of the standard input field that omits the `clean` function and adds `shown` and `writeOnly` options.
+
+  <Expandable title="ConnectionInput fields">
+    <ParamField path="inputs[key].type" type="'string' | 'data' | 'text' | 'password' | 'boolean' | 'template'" required>
+      The type of the connection input field.
+    </ParamField>
+    <ParamField path="inputs[key].label" type="string | { key: string; value: string }" required>
+      Display label for this field.
+    </ParamField>
+    <ParamField path="inputs[key].required" type="boolean">
+      Whether this field must be filled in.
+    </ParamField>
+    <ParamField path="inputs[key].placeholder" type="string">
+      Placeholder text.
+    </ParamField>
+    <ParamField path="inputs[key].comments" type="string">
+      Help text for this field.
+    </ParamField>
+    <ParamField path="inputs[key].example" type="string">
+      Example valid value.
+    </ParamField>
+    <ParamField path="inputs[key].default" type="string">
+      Default value.
+    </ParamField>
+    <ParamField path="inputs[key].shown" type="boolean">
+      When `false`, hides this field from the integration builder UI. Defaults to `true`.
+    </ParamField>
+    <ParamField path="inputs[key].writeOnly" type="true">
+      When set, this field's value is write-only and never returned in API responses. Use for secrets. See [write-only inputs](https://prismatic.io/docs/integrations/config-wizard/config-variables/#write-only-connection-inputs).
+    </ParamField>
+    <ParamField path="inputs[key].model" type="InputFieldChoice[]">
+      Dropdown choices for this field.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Return type
+
+Returns the same `DefaultConnectionDefinition` object passed in, after validation. Pass the returned value to the `connections` array in [`component`](/api-reference/component).
+
+## Example
+
+```typescript
+import { connection, component } from "@prismatic-io/spectral";
+
+export const apiKeyConnection = connection({
+  key: "apiKey",
+  display: {
+    label: "API Key",
+    description: "Authenticate using an API key",
+  },
+  inputs: {
+    endpoint: {
+      label: "API Endpoint",
+      type: "string",
+      required: true,
+      default: "https://api.example.com",
+      placeholder: "https://api.example.com",
+      comments: "The base URL of the API",
+      example: "https://api.acme.com",
+    },
+    apiKey: {
+      label: "API Key",
+      type: "password",
+      required: true,
+      shown: true,
+      writeOnly: true,
+      placeholder: "Your API key",
+    },
+    region: {
+      label: "Region",
+      type: "string",
+      required: false,
+      model: [
+        { label: "US East", value: "us-east" },
+        { label: "EU West", value: "eu-west" },
+      ],
+      default: "us-east",
+    },
+  },
+});
+
+export default component({
+  key: "myComponent",
+  display: {
+    label: "My Component",
+    description: "Example component",
+    iconPath: "icon.png",
+  },
+  connections: [apiKeyConnection],
+});
+```
+
+### Using a connection in an action
+
+```typescript
+import { action, input } from "@prismatic-io/spectral";
+
+export const fetchData = action({
+  display: { label: "Fetch Data", description: "Get data from the API" },
+  inputs: {
+    connection: input({ label: "Connection", type: "connection", required: true }),
+  },
+  perform: async (context, params) => {
+    const { endpoint, apiKey } = params.connection.fields as {
+      endpoint: string;
+      apiKey: string;
+    };
+
+    const response = await fetch(`${endpoint}/data`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+
+    return { data: await response.json() };
+  },
+});
+```
+
+## Related
+
+- [`oauth2Connection`](/api-reference/oauth2-connection) — Define an OAuth 2.0 connection
+- [`onPremConnection`](/api-reference/on-prem-connection) — Define an on-premises connection
+- [`component`](/api-reference/component) — Register connections in a component
+- [`input`](/api-reference/input) — Define inputs for actions that accept a connection

@@ -1,0 +1,261 @@
+---
+title: 'Data sources'
+description: 'Fetch data from external APIs to power dropdowns, field maps, and dynamic forms in integration config wizards.'
+---
+
+A data source is a function that fetches data from an external API and returns it in a format that Prismatic renders inside a config wizard. Data sources are defined with `dataSource()` and collected in the `dataSources` field of `component()`.
+
+## DataSourceDefinition type
+
+```typescript
+interface DataSourceDefinition<
+  TInputs extends Inputs,
+  TConfigVars extends ConfigVarResultCollection,
+  TDataSourceType extends DataSourceType,
+> {
+  /** How this data source appears in the Prismatic UI. */
+  display: ActionDisplayDefinition;
+  /** Function that fetches and returns data. */
+  perform: DataSourcePerformFunction<TInputs, TConfigVars, TDataSourceType>;
+  /** The UI control type to render the result. */
+  dataSourceType: TDataSourceType;
+  /** Input fields presented to integration builders. */
+  inputs: TInputs;
+  /** Example output shown in the UI. Must match TDataSourceType. */
+  examplePayload?: Awaited<ReturnType<this["perform"]>>;
+  /**
+   * Name of another data source in this component that provides
+   * supplemental detail (e.g., example field values) for this data source.
+   */
+  detailDataSource?: string;
+}
+```
+
+## DataSourceType values
+
+The `dataSourceType` field controls which UI element renders the data returned by `perform`:
+
+| `dataSourceType` | Return type | UI rendered |
+|---|---|---|
+| `"picklist"` | `string[]` or `Element[]` | Dropdown list |
+| `"string"` | `string` | Text input pre-filled with the value |
+| `"date"` | `string` | Date picker pre-filled with the value |
+| `"timestamp"` | `string` | Date/time picker pre-filled with the value |
+| `"boolean"` | `boolean` | Toggle pre-set to the value |
+| `"number"` | `number` | Numeric input pre-filled with the value |
+| `"code"` | `string` | Code editor pre-filled with the value |
+| `"objectSelection"` | `ObjectSelection` | Object and field selector |
+| `"objectFieldMap"` | `ObjectFieldMap` | Field mapping UI |
+| `"jsonForm"` | `JSONForm` | Dynamic JSON Forms UI |
+| `"schedule"` | `{ value: string }` | Schedule picker |
+
+## DataSourceResult
+
+All `perform` functions must return a `DataSourceResult` matching the declared `dataSourceType`:
+
+```typescript
+type DataSourceResult<TDataSourceType extends DataSourceType> = {
+  /** The data returned; type depends on dataSourceType. */
+  result: DataSourceTypeMap[TDataSourceType];
+  /**
+   * Optional extra data for out-of-band processing.
+   * Only available when called from a config wizard page.
+   */
+  supplementalData?: { data: unknown; contentType: string };
+};
+```
+
+## Picklist example
+
+The most common data source type. Returns a list of strings (or labeled elements) that populate a dropdown:
+
+```typescript
+import { dataSource, input } from "@prismatic-io/spectral";
+
+export const listProjects = dataSource({
+  display: {
+    label: "List Projects",
+    description: "Fetch all projects the connected account can access",
+  },
+  dataSourceType: "picklist",
+  inputs: {
+    connection: input({
+      label: "Connection",
+      type: "connection",
+      required: true,
+    }),
+  },
+  perform: async (context, params) => {
+    const apiKey = params.connection.fields.apiKey as string;
+
+    const response = await fetch("https://api.example.com/projects", {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch projects: ${response.status}`);
+    }
+
+    const projects = (await response.json()) as { id: string; name: string }[];
+
+    // Return labeled elements so the UI shows the name but stores the ID
+    return {
+      result: projects.map((p) => ({ key: p.id, label: p.name })),
+    };
+  },
+  examplePayload: {
+    result: [
+      { key: "proj_01", label: "Marketing Automation" },
+      { key: "proj_02", label: "Data Sync" },
+    ],
+  },
+});
+```
+
+## ObjectSelection example
+
+`objectSelection` lets integration builders choose which objects (and optionally which fields on those objects) to include:
+
+```typescript
+import { dataSource, input } from "@prismatic-io/spectral";
+
+export const selectCrmObjects = dataSource({
+  display: {
+    label: "Select CRM Objects",
+    description: "Choose which CRM objects to sync and which fields to include",
+  },
+  dataSourceType: "objectSelection",
+  inputs: {
+    connection: input({ label: "Connection", type: "connection", required: true }),
+  },
+  perform: async (context, params) => {
+    const apiKey = params.connection.fields.apiKey as string;
+
+    const response = await fetch("https://api.example.com/schema", {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    const schema = await response.json();
+
+    return {
+      result: schema.objects.map((obj: { name: string; fields: string[] }) => ({
+        object: { key: obj.name, label: obj.name },
+        fields: obj.fields.map((f) => ({ key: f, label: f })),
+        defaultSelected: true,
+      })),
+    };
+  },
+});
+```
+
+## ObjectFieldMap example
+
+`objectFieldMap` lets integration builders map fields from one system to fields in another:
+
+```typescript
+export const mapContactFields = dataSource({
+  display: {
+    label: "Map Contact Fields",
+    description: "Map source system fields to CRM contact fields",
+  },
+  dataSourceType: "objectFieldMap",
+  inputs: {
+    connection: input({ label: "Connection", type: "connection", required: true }),
+  },
+  perform: async (context, params) => {
+    return {
+      result: {
+        fields: [
+          {
+            field: { key: "firstName", label: "First Name" },
+            mappedObject: { key: "contacts", label: "Contacts" },
+            mappedField: { key: "first_name", label: "First Name" },
+          },
+          {
+            field: { key: "email", label: "Email Address" },
+            mappedObject: { key: "contacts", label: "Contacts" },
+            mappedField: { key: "email", label: "Email" },
+          },
+        ],
+        options: [
+          {
+            object: { key: "contacts", label: "Contacts" },
+            fields: [
+              { key: "first_name", label: "First Name" },
+              { key: "last_name", label: "Last Name" },
+              { key: "email", label: "Email" },
+            ],
+          },
+        ],
+      },
+    };
+  },
+});
+```
+
+## JSONForm example
+
+`jsonForm` renders a dynamic form driven by a JSON Schema and UI schema (using the [JSON Forms](https://jsonforms.io) library):
+
+```typescript
+export const configureNotifications = dataSource({
+  display: {
+    label: "Configure Notifications",
+    description: "Set notification preferences using a dynamic form",
+  },
+  dataSourceType: "jsonForm",
+  inputs: {},
+  perform: async (context, params) => {
+    return {
+      result: {
+        schema: {
+          type: "object",
+          properties: {
+            email: { type: "string", format: "email", title: "Email Address" },
+            frequency: {
+              type: "string",
+              enum: ["daily", "weekly", "monthly"],
+              title: "Frequency",
+            },
+            enabled: { type: "boolean", title: "Notifications Enabled" },
+          },
+          required: ["email", "frequency"],
+        },
+        uiSchema: {
+          type: "VerticalLayout",
+          elements: [
+            { type: "Control", scope: "#/properties/email" },
+            { type: "Control", scope: "#/properties/frequency" },
+            { type: "Control", scope: "#/properties/enabled" },
+          ],
+        },
+        data: { frequency: "weekly", enabled: true },
+      },
+    };
+  },
+});
+```
+
+## Using detailDataSource
+
+Set `detailDataSource` to the key of another data source in the same component. When the integration builder selects items using this data source, the detail data source is called to provide richer metadata (such as available field values for the selected objects):
+
+```typescript
+export const listObjects = dataSource({
+  display: { label: "List Objects", description: "" },
+  dataSourceType: "objectSelection",
+  inputs: { connection: input({ label: "Connection", type: "connection", required: true }) },
+  detailDataSource: "objectDetail",
+  perform: async (context, params) => { /* ... */ },
+});
+
+export const objectDetail = dataSource({
+  display: { label: "Object Detail", description: "Supplemental field details" },
+  dataSourceType: "objectFieldMap",
+  inputs: { connection: input({ label: "Connection", type: "connection", required: true }) },
+  perform: async (context, params) => { /* ... */ },
+});
+```
+
+<Tip>
+Use `Element[]` instead of `string[]` for picklist results when you want the UI to display a human-readable label but store a programmatic key (such as an ID).
+</Tip>

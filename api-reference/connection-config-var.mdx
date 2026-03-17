@@ -1,0 +1,214 @@
+---
+title: 'connectionConfigVar()'
+description: 'Creates a connection config variable for code-native integrations.'
+---
+
+The `connectionConfigVar()` function defines a config variable that holds a **connection** — a set of authentication credentials (API key, OAuth token, username/password, etc.) used to authenticate with an external service. Connection config variables always have `dataType: "connection"`.
+
+A connection config var can be defined in two ways:
+
+- **Connection definition** — inline definition with explicit `inputs` fields (used when building a connection from scratch within a code-native integration).
+- **Connection reference** — a reference to a connection defined in a component registered in the `componentRegistry` (used when reusing an existing component's connection type).
+
+## Function signature
+
+```typescript
+export const connectionConfigVar = <T extends ConnectionConfigVar = ConnectionConfigVar>(
+  definition: T,
+): T
+```
+
+## Parameters
+
+<ParamField path="definition" type="ConnectionConfigVar" required>
+  An object describing the connection config variable. The shape depends on whether it is a connection definition or a connection reference.
+
+  <Expandable title="Common fields (all connection config vars)" defaultOpen>
+    <ParamField path="stableKey" type="string" required>
+      A unique, unchanging identifier for this connection config variable.
+    </ParamField>
+
+    <ParamField path="dataType" type="'connection'" required>
+      Must always be `"connection"` for connection config variables.
+    </ParamField>
+
+    <ParamField path="description" type="string">
+      Human-readable description shown in the config wizard.
+    </ParamField>
+
+    <ParamField path="permissionAndVisibilityType" type="'customer' | 'embedded' | 'organization'" default="customer">
+      Controls who can view and edit this connection in the config wizard.
+    </ParamField>
+
+    <ParamField path="visibleToOrgDeployer" type="boolean" default="true">
+      Whether this connection is visible to an organization deployer.
+    </ParamField>
+  </Expandable>
+
+  <Expandable title="Connection definition fields (inline connection)">
+    <ParamField path="inputs" type="Record<string, InputField & ConfigVarInputVisibility>" required>
+      The input fields that make up the connection (e.g., `apiKey`, `baseUrl`, `username`, `password`). Each value is an input field definition combined with optional visibility settings.
+    </ParamField>
+
+    <ParamField path="icons" type="object">
+      Optional icons to display in the config wizard for this connection.
+    </ParamField>
+
+    <ParamField path="onPremConnectionConfig" type="'allowed' | 'disallowed' | 'required'">
+      Whether the connection supports on-premise agents.
+    </ParamField>
+  </Expandable>
+
+  <Expandable title="Connection reference fields (component connection)">
+    <ParamField path="connection" type="ComponentReference & { template?: string; onPremiseConnectionConfig?: 'allowed' | 'disallowed' | 'required' }" required>
+      A reference to a connection defined in a component from the `componentRegistry`. Includes the component key, connection key, and any input values.
+
+      <Expandable title="connection fields">
+        <ParamField path="component" type="string" required>
+          The key of the component that defines this connection.
+        </ParamField>
+        <ParamField path="key" type="string" required>
+          The key of the specific connection within the component.
+        </ParamField>
+        <ParamField path="values" type="object">
+          Input values for the connection, where each value is a `ValueExpression` or `ConfigVarExpression`.
+        </ParamField>
+        <ParamField path="template" type="string">
+          Optional template string.
+        </ParamField>
+        <ParamField path="onPremiseConnectionConfig" type="'allowed' | 'disallowed' | 'required'">
+          On-premise configuration, only available if the component connection supports on-premise agents.
+        </ParamField>
+      </Expandable>
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Return type
+
+<ResponseField name="connectionConfigVar" type="T">
+  The same connection config variable definition object passed in, unchanged. Used for type inference.
+</ResponseField>
+
+<Note>
+  At runtime, the value of a connection config variable is available as a `Connection` object in `context.configVars`. It contains the resolved input values and can be passed directly to component actions or used in your own HTTP client setup.
+</Note>
+
+## Examples
+
+<CodeGroup>
+
+```typescript Inline connection definition
+import { configPage, connectionConfigVar, input } from "@prismatic-io/spectral";
+
+const connectionPage = configPage({
+  tagline: "Authenticate with Acme Corp API",
+  elements: {
+    "Acme Connection": connectionConfigVar({
+      stableKey: "acme-connection",
+      dataType: "connection",
+      description: "Your Acme Corp API credentials.",
+      inputs: {
+        apiKey: input({
+          label: "API Key",
+          type: "password",
+          required: true,
+          comments: "Your Acme Corp API key.",
+          clean: (value) => String(value),
+        }),
+        baseUrl: input({
+          label: "Base URL",
+          type: "string",
+          required: true,
+          default: "https://api.acme.com/v1",
+          comments: "The base URL for the Acme Corp API.",
+          clean: (value) => String(value),
+        }),
+      },
+    }),
+  },
+});
+```
+
+```typescript Component connection reference
+import {
+  configPage,
+  connectionConfigVar,
+  componentManifests,
+} from "@prismatic-io/spectral";
+import { acmeComponent } from "./componentManifests";
+
+// Assuming acmeComponent is registered in componentRegistry
+const connectionPage = configPage({
+  tagline: "Connect to Acme Corp",
+  elements: {
+    "Acme Connection": connectionConfigVar({
+      stableKey: "acme-component-connection",
+      dataType: "connection",
+      connection: {
+        component: "acme",
+        key: "apiKeyConnection",
+        values: {
+          baseUrl: { value: "https://api.acme.com/v1" },
+        },
+      },
+    }),
+  },
+});
+```
+
+```typescript Using the connection in a flow
+import { flow } from "@prismatic-io/spectral";
+
+const myFlow = flow({
+  name: "Fetch Records",
+  stableKey: "fetch-records",
+  onExecution: async (context, params) => {
+    const connection = context.configVars["Acme Connection"];
+    // connection.fields contains the resolved input values
+    const apiKey = connection.fields["apiKey"];
+    const baseUrl = connection.fields["baseUrl"];
+
+    const response = await fetch(`${baseUrl}/records`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    const data = await response.json();
+    return { data };
+  },
+});
+```
+
+</CodeGroup>
+
+## Customer-activated and organization-activated connections
+
+For integration-agnostic connections, use the dedicated helper functions instead of `connectionConfigVar()`:
+
+- `customerActivatedConnection({ stableKey })` — Creates a customer-activated connection config var (customers configure the connection themselves).
+- `organizationActivatedConnection({ stableKey })` — Creates an org-activated connection config var (the organization configures the connection, not the customer).
+
+These are placed in `scopedConfigVars` on the integration definition rather than in `configPages`.
+
+```typescript
+import {
+  integration,
+  organizationActivatedConnection,
+} from "@prismatic-io/spectral";
+
+export default integration({
+  name: "My Integration",
+  flows: [],
+  scopedConfigVars: {
+    "Shared API Connection": organizationActivatedConnection({
+      stableKey: "shared-api-connection",
+    }),
+  },
+});
+```
+
+## Related
+
+- [`configPage()`](/api-reference/config-page) — The page that contains this connection config variable.
+- [`configVar()`](/api-reference/config-var) — For non-connection config variables.
+- [`componentManifest()`](/api-reference/component-manifest) — Register component connections for reference.
+- [`integration()`](/api-reference/integration) — The parent integration definition.

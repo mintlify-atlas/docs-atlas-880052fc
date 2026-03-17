@@ -1,0 +1,335 @@
+---
+title: 'Triggers'
+description: 'Define how an integration flow is started — via webhook, schedule, or polling an external API for changes.'
+---
+
+A trigger controls when and how an integration flow runs. Triggers are defined with `trigger()` or `pollingTrigger()` and collected in the `triggers` field of `component()`.
+
+## TriggerDefinition type
+
+```typescript
+interface TriggerDefinition<
+  TInputs extends Inputs,
+  TConfigVars extends ConfigVarResultCollection,
+  TAllowsBranching extends boolean,
+  TResult extends TriggerResult<TAllowsBranching, TriggerPayload>,
+> {
+  /** How this trigger appears in the Prismatic UI. */
+  display: ActionDisplayDefinition;
+  /** Function invoked when the trigger fires. */
+  perform: TriggerPerformFunction<TInputs, TConfigVars, TAllowsBranching, TResult>;
+  /** Optional: run when a flow's instance is deployed. */
+  onInstanceDeploy?: TriggerEventFunction<TInputs, TConfigVars>;
+  /** Optional: run when a flow's instance is deleted. */
+  onInstanceDelete?: TriggerEventFunction<TInputs, TConfigVars>;
+  /** Optional: webhook lifecycle handlers (create/delete). */
+  webhookLifecycleHandlers?: {
+    create: TriggerEventFunction<TInputs, TConfigVars>;
+    delete: TriggerEventFunction<TInputs, TConfigVars>;
+  };
+  /** Input fields presented to integration builders. */
+  inputs: TInputs;
+  /** Whether this trigger supports scheduled (recurring) execution. */
+  scheduleSupport: "invalid" | "valid" | "required";
+  /** Whether this trigger supports synchronous webhook responses. */
+  synchronousResponseSupport: "invalid" | "valid" | "required";
+  /** If true, stops flow execution after the trigger completes. */
+  terminateExecution?: boolean;
+  /** If true, breaks out of an enclosing loop. */
+  breakLoop?: boolean;
+  /** If true, allows conditional branching. */
+  allowsBranching?: TAllowsBranching;
+  /** Fixed branch names (when allowsBranching is true). */
+  staticBranchNames?: string[];
+  /** Input key whose value is the dynamic branch name at runtime. */
+  dynamicBranchInput?: string;
+  /** Example output payload, shown in the UI. */
+  examplePayload?: Awaited<ReturnType<this["perform"]>>;
+  /** @internal Only configurable by Prismatic for built-in triggers. */
+  isCommonTrigger?: boolean;
+}
+```
+
+### scheduleSupport and synchronousResponseSupport
+
+Both fields accept one of three string values:
+
+| Value | Meaning |
+|---|---|
+| `"invalid"` | This feature is not supported and cannot be enabled |
+| `"valid"` | This feature is supported and can optionally be enabled |
+| `"required"` | This feature must be enabled for this trigger to work |
+
+## TriggerResult shape
+
+The `perform` function of a trigger must return a `TriggerResult`:
+
+```typescript
+interface TriggerBaseResult<TPayload extends TriggerPayload> {
+  /** The inbound request payload, passed to subsequent steps. */
+  payload: TPayload;
+  /** HTTP response sent back to the caller for synchronous invocations. */
+  response?: HttpResponse;
+  /** Data to persist in flow-specific instance state. */
+  instanceState?: Record<string, unknown>;
+  /** Data to persist across all flows. */
+  crossFlowState?: Record<string, unknown>;
+  /** Data available for the duration of this execution only. */
+  executionState?: Record<string, unknown>;
+  /** Data shared across all flows and versions of this integration. */
+  integrationState?: Record<string, unknown>;
+  /** Set by the platform to indicate failure. */
+  failed?: boolean;
+  /** Set by the platform with error details on failure. */
+  error?: Record<string, unknown>;
+  /** Set to true to indicate there were no new changes to process (polling). */
+  polledNoChanges?: boolean;
+}
+
+// When allowsBranching: true, the result must also include:
+interface TriggerBranchingResult<TPayload> extends TriggerBaseResult<TPayload> {
+  branch: string;
+}
+```
+
+## Webhook trigger example
+
+A webhook trigger receives an inbound HTTP request and passes its payload to subsequent steps:
+
+```typescript
+import { trigger, input } from "@prismatic-io/spectral";
+
+export const webhookTrigger = trigger({
+  display: {
+    label: "Webhook",
+    description: "Trigger a flow when an HTTP request is received",
+  },
+  inputs: {
+    signatureSecret: input({
+      label: "Webhook Signature Secret",
+      type: "password",
+      required: false,
+      comments: "Optional secret used to verify the webhook signature",
+    }),
+  },
+  scheduleSupport: "invalid",
+  synchronousResponseSupport: "valid",
+  perform: async (context, payload, params) => {
+    // Optionally verify the signature
+    if (params.signatureSecret) {
+      const signature = payload.headers["x-signature"] as string;
+      verifySignature(payload.rawBody.data as Buffer, signature, params.signatureSecret);
+    }
+
+    context.logger.info("Webhook received", {
+      method: payload.headers[":method"],
+      contentType: payload.headers["content-type"],
+    });
+
+    return {
+      payload,
+      response: {
+        statusCode: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ received: true }),
+      },
+    };
+  },
+});
+```
+
+## Scheduled trigger example
+
+A scheduled trigger fires on a recurring schedule (cron) configured by the integration builder:
+
+```typescript
+import { trigger } from "@prismatic-io/spectral";
+
+export const scheduledTrigger = trigger({
+  display: {
+    label: "Schedule",
+    description: "Run the flow on a recurring schedule",
+  },
+  inputs: {},
+  scheduleSupport: "required",
+  synchronousResponseSupport: "invalid",
+  perform: async (context, payload, params) => {
+    context.logger.info("Scheduled trigger fired", { startedAt: context.startedAt });
+    return { payload };
+  },
+});
+```
+
+## Instance lifecycle handlers
+
+`onInstanceDeploy` and `onInstanceDelete` run when an instance using this trigger is deployed or deleted. These are useful for registering and deregistering webhooks with a third-party service:
+
+```typescript
+import { trigger, input } from "@prismatic-io/spectral";
+
+export const managedWebhookTrigger = trigger({
+  display: {
+    label: "Managed Webhook",
+    description: "Automatically registers and deregisters a webhook with the external service",
+  },
+  inputs: {
+    connection: input({ label: "Connection", type: "connection", required: true }),
+  },
+  scheduleSupport: "invalid",
+  synchronousResponseSupport: "valid",
+  perform: async (context, payload, params) => {
+    return { payload };
+  },
+  onInstanceDeploy: async (context, params) => {
+    const apiKey = params.connection.fields.apiKey as string;
+    const webhookUrl = context.webhookUrls[context.flow.name];
+
+    await fetch("https://api.example.com/webhooks", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ url: webhookUrl, events: ["contact.created"] }),
+    });
+
+    context.logger.info("Webhook registered", { webhookUrl });
+  },
+  onInstanceDelete: async (context, params) => {
+    const apiKey = params.connection.fields.apiKey as string;
+    const webhookId = context.instanceState.webhookId as string;
+
+    await fetch(`https://api.example.com/webhooks/${webhookId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+
+    context.logger.info("Webhook deregistered", { webhookId });
+  },
+});
+```
+
+## Webhook lifecycle handlers
+
+For more granular webhook management, use `webhookLifecycleHandlers` instead of `onInstanceDeploy`/`onInstanceDelete`. This allows different behavior during create and delete:
+
+```typescript
+webhookLifecycleHandlers: {
+  create: async (context, params) => {
+    // Register the webhook URL with the third-party service
+  },
+  delete: async (context, params) => {
+    // Deregister the webhook from the third-party service
+  },
+},
+```
+
+## Polling triggers
+
+A polling trigger periodically calls an action to check for new events or records. Use `pollingTrigger()` instead of `trigger()` for this pattern.
+
+### PollingTriggerDefinition type
+
+```typescript
+interface PollingTriggerDefinition<
+  TInputs,
+  TConfigVars,
+  TPayload,
+  TAllowsBranching,
+  TResult,
+  TActionInputs,
+> {
+  triggerType?: "polling"; // Set automatically by pollingTrigger()
+  display: ActionDisplayDefinition;
+  /** The action to invoke on each poll cycle. */
+  pollAction?: ActionDefinition<TActionInputs>;
+  /** Custom perform function; a default is provided for most polling triggers. */
+  perform: PollingTriggerPerformFunction<...>;
+  onInstanceDeploy?: TriggerEventFunction<TInputs, TConfigVars>;
+  onInstanceDelete?: TriggerEventFunction<TInputs, TConfigVars>;
+  inputs?: TInputs;
+  allowsBranching?: TAllowsBranching;
+  examplePayload?: Awaited<ReturnType<this["perform"]>>;
+}
+```
+
+The `perform` function for polling triggers receives a `PollingContext` that extends `ActionContext` with a `polling` object:
+
+```typescript
+interface PollingContext extends ActionContext {
+  polling: {
+    /** Invoke the poll action with the given parameters. */
+    invokeAction: (params: ActionInputParameters<TInputs>) => Promise<ActionPerformReturn>;
+    /** Get the current polling state (persisted between poll cycles). */
+    getState: () => Record<string, unknown>;
+    /** Persist new polling state for the next cycle. */
+    setState: (newState: Record<string, unknown>) => void;
+  };
+}
+```
+
+### Polling trigger example
+
+```typescript
+import { pollingTrigger, action, input } from "@prismatic-io/spectral";
+
+const fetchNewOrders = action({
+  display: {
+    label: "Fetch New Orders",
+    description: "Get orders created since the last poll",
+  },
+  inputs: {
+    connection: input({ label: "Connection", type: "connection", required: true }),
+    sinceTimestamp: input({
+      label: "Since Timestamp",
+      type: "timestamp",
+      comments: "Only return orders created after this time",
+    }),
+  },
+  perform: async (context, params) => {
+    const apiKey = params.connection.fields.apiKey as string;
+    const since = params.sinceTimestamp;
+
+    const response = await fetch(
+      `https://api.example.com/orders?created_after=${since}`,
+      { headers: { Authorization: `Bearer ${apiKey}` } }
+    );
+    const orders = await response.json();
+    return { data: orders };
+  },
+});
+
+export const newOrderTrigger = pollingTrigger({
+  display: {
+    label: "New Order",
+    description: "Fires when new orders are found since the last poll",
+  },
+  pollAction: fetchNewOrders,
+  inputs: {
+    connection: input({ label: "Connection", type: "connection", required: true }),
+  },
+  perform: async (context, payload, params) => {
+    const state = context.polling.getState();
+    const lastPollTime = (state.lastPollTime as string) ?? new Date(0).toISOString();
+
+    const result = await context.polling.invokeAction({
+      connection: params.connection,
+      sinceTimestamp: lastPollTime,
+    });
+
+    const orders = (result?.data as unknown[]) ?? [];
+    const hasNewData = orders.length > 0;
+
+    context.polling.setState({ lastPollTime: new Date().toISOString() });
+
+    return {
+      payload,
+      polledNoChanges: !hasNewData,
+    };
+  },
+});
+```
+
+<Note>
+`pollingTrigger()` automatically sets `triggerType: "polling"` on the returned object. You do not need to set it manually.
+</Note>

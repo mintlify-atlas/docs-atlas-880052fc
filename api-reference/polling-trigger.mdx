@@ -1,0 +1,217 @@
+---
+title: pollingTrigger
+description: Define a trigger that polls an action on a schedule to detect new events, rather than receiving inbound webhooks.
+---
+
+The `pollingTrigger` function creates a polling trigger that executes an existing action in the component on a defined schedule. When new results are detected compared to a stored state, the trigger fires and passes the payload to the flow. This is an alternative to inbound webhook triggers for services that do not support push-based notifications.
+
+<Note>
+  `pollingTrigger` automatically sets `triggerType: "polling"` on the returned definition. You do not need to set this field manually.
+</Note>
+
+## Function signature
+
+```typescript
+function pollingTrigger<
+  TInputs extends Inputs,
+  TConfigVars extends ConfigVarResultCollection,
+  TPayload extends TriggerPayload,
+  TAllowsBranching extends boolean,
+  TResult extends TriggerResult<TAllowsBranching, TPayload>,
+  TActionInputs extends Inputs,
+>(
+  definition: PollingTriggerDefinition<
+    TInputs,
+    TConfigVars,
+    TPayload,
+    TAllowsBranching,
+    TResult,
+    TActionInputs
+  >
+): PollingTriggerDefinition<TInputs, TConfigVars, TPayload, TAllowsBranching, TResult, TActionInputs>
+```
+
+The returned definition has `triggerType` set to `"polling"` automatically.
+
+## How it differs from `trigger`
+
+A regular `trigger` receives inbound webhook requests. A `pollingTrigger` does not listen for inbound events — instead it:
+
+1. Runs on a schedule defined in the integration config wizard
+2. Invokes a `pollAction` (any `ActionDefinition` in the same component)
+3. Compares results against persisted state via `context.polling.getState()` / `context.polling.setState()`
+4. Fires the flow when new data is detected
+
+## Parameters
+
+<ParamField path="definition" type="PollingTriggerDefinition" required>
+  An object describing the polling trigger. See fields below.
+</ParamField>
+
+### `PollingTriggerDefinition` fields
+
+<ParamField path="definition.display" type="ActionDisplayDefinition" required>
+  Controls how the trigger appears in the Prismatic UI.
+
+  <Expandable title="ActionDisplayDefinition fields">
+    <ParamField path="display.label" type="string" required>
+      Human-readable name.
+    </ParamField>
+    <ParamField path="display.description" type="string" required>
+      Describes what this polling trigger monitors.
+    </ParamField>
+    <ParamField path="display.directions" type="string">
+      Additional guidance for the integration builder.
+    </ParamField>
+    <ParamField path="display.important" type="boolean">
+      Highlights this trigger as commonly used. Use sparingly.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="definition.pollAction" type="ActionDefinition<TActionInputs>">
+  The action to invoke on each polling interval. This must be an `ActionDefinition` defined in the same component. The polling runtime calls this action and passes results to `perform`.
+</ParamField>
+
+<ParamField path="definition.perform" type="PollingTriggerPerformFunction" required>
+  The async function that runs on each polling invocation. Receives an extended context (with polling helpers), a payload, and params.
+
+  ```typescript
+  perform: (
+    context: ActionContext<TConfigVars> & PollingContext<TActionInputs>,
+    payload: TPayload,
+    params: ActionInputParameters<TInputs & TActionInputs>
+  ) => Promise<TResult>
+  ```
+
+  <Expandable title="PollingContext fields (extends ActionContext)">
+    <ParamField path="context.polling.invokeAction" type="function">
+      Invokes the `pollAction` with the given input parameters. Returns `Promise<ActionPerformReturn<boolean, ReturnData>>`.
+
+      ```typescript
+      context.polling.invokeAction(params: ActionInputParameters<TActionInputs>)
+      ```
+    </ParamField>
+    <ParamField path="context.polling.getState" type="() => Record<string, unknown>">
+      Returns the current persisted polling state (e.g., last seen event ID or timestamp). Used to detect new items.
+    </ParamField>
+    <ParamField path="context.polling.setState" type="(newState: Record<string, unknown>) => void">
+      Persists new polling state for use in the next poll cycle.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="definition.inputs" type="TInputs">
+  Additional inputs for the polling trigger itself, presented to the integration builder alongside the `pollAction` inputs.
+</ParamField>
+
+<ParamField path="definition.onInstanceDeploy" type="TriggerEventFunction">
+  Function called when an instance using this trigger is deployed.
+</ParamField>
+
+<ParamField path="definition.onInstanceDelete" type="TriggerEventFunction">
+  Function called when an instance using this trigger is deleted.
+</ParamField>
+
+<ParamField path="definition.allowsBranching" type="boolean">
+  When `true`, this trigger supports conditional branching.
+</ParamField>
+
+<ParamField path="definition.examplePayload" type="Awaited<ReturnType<perform>>">
+  Example return value used to preview output shape in the UI.
+</ParamField>
+
+<ParamField path="definition.triggerType" type="'polling'">
+  Set automatically to `"polling"` by the `pollingTrigger` function. Do not set this manually.
+</ParamField>
+
+## Return type
+
+See [`trigger` return type](/api-reference/trigger#return-type). The `TriggerResult` fields are identical, with the addition of:
+
+<ResponseField name="polledNoChanges" type="boolean">
+  Return `true` to indicate no new data was found in this poll cycle. The platform will not fire the flow.
+</ResponseField>
+
+## Example
+
+```typescript
+import { action, pollingTrigger, input, component } from "@prismatic-io/spectral";
+
+// The action that fetches new records
+const fetchNewOrders = action({
+  display: {
+    label: "Fetch New Orders",
+    description: "Retrieve orders created since a given timestamp",
+  },
+  inputs: {
+    connection: input({ label: "Connection", type: "connection", required: true }),
+    since: input({
+      label: "Since",
+      type: "timestamp",
+      required: false,
+      comments: "Return orders created after this time",
+    }),
+  },
+  perform: async (context, params) => {
+    const apiKey = params.connection.fields.apiKey as string;
+    const orders = await getOrdersSince(apiKey, params.since as string);
+    return { data: orders };
+  },
+});
+
+// The polling trigger that uses the action
+const newOrderTrigger = pollingTrigger({
+  display: {
+    label: "New Order",
+    description: "Triggers when a new order is created",
+  },
+  pollAction: fetchNewOrders,
+  inputs: {
+    connection: input({ label: "Connection", type: "connection", required: true }),
+  },
+  perform: async (context, payload, params) => {
+    const state = context.polling.getState();
+    const lastSeenAt = (state.lastSeenAt as string) ?? new Date(0).toISOString();
+
+    const result = await context.polling.invokeAction({
+      connection: params.connection,
+      since: lastSeenAt,
+    });
+
+    const orders = result?.data as { id: string; createdAt: string }[];
+
+    if (!orders || orders.length === 0) {
+      return { payload, polledNoChanges: true };
+    }
+
+    // Persist latest timestamp as new state
+    const latestOrder = orders[orders.length - 1];
+    context.polling.setState({ lastSeenAt: latestOrder.createdAt });
+
+    return { payload: { ...payload, body: { data: orders } } };
+  },
+});
+
+async function getOrdersSince(apiKey: string, since: string) {
+  // Fetch orders from the external API
+  return [];
+}
+
+export default component({
+  key: "myOrdersComponent",
+  display: {
+    label: "My Orders",
+    description: "Integrates with the orders API",
+    iconPath: "icon.png",
+  },
+  actions: { fetchNewOrders },
+  triggers: { newOrderTrigger },
+});
+```
+
+## Related
+
+- [`trigger`](/api-reference/trigger) — Define a webhook-based trigger
+- [`action`](/api-reference/action) — Define the action used as `pollAction`
+- [`component`](/api-reference/component) — Register the polling trigger in a component

@@ -1,0 +1,358 @@
+---
+title: 'flow()'
+description: 'Creates a flow object for use in code-native integrations.'
+---
+
+The `flow()` function defines a single flow within a code-native integration. A flow has a trigger (webhook, schedule, or polling) and a main execution function. Flows are passed as an array to the `flows` field of [`integration()`](/api-reference/integration).
+
+## Function signature
+
+```typescript
+export const flow = <
+  TInputs extends Inputs,
+  TActionInputs extends Inputs,
+  TPayload extends TriggerPayload = TriggerPayload,
+  TAllowsBranching extends boolean = boolean,
+  TResult extends TriggerResult<TAllowsBranching, TPayload> = TriggerResult<TAllowsBranching, TPayload>,
+  TTriggerPayload extends TriggerPayload = TriggerPayload,
+  T extends Flow<TInputs, TActionInputs, TPayload, TAllowsBranching, TResult, TTriggerPayload>
+    = Flow<TInputs, TActionInputs, TPayload, TAllowsBranching, TResult, TTriggerPayload>,
+>(
+  definition: T,
+): T
+```
+
+A `Flow` is a union of `StandardFlow` (webhook or scheduled trigger) and `PollingFlow` (polling trigger). The `triggerType` field determines which variant applies.
+
+## Parameters
+
+<ParamField path="definition" type="Flow" required>
+  An object that defines the flow. All base fields apply to both standard and polling flows.
+
+  <Expandable title="Base flow fields (all flow types)" defaultOpen>
+    <ParamField path="name" type="string" required>
+      The unique display name for this flow.
+    </ParamField>
+
+    <ParamField path="stableKey" type="string" required>
+      A unique, unchanging identifier for this flow. Even if the `name` changes, `stableKey` preserves the flow's identity in the platform.
+    </ParamField>
+
+    <ParamField path="description" type="string">
+      Human-readable description for this flow.
+    </ParamField>
+
+    <ParamField path="onExecution" type="FlowOnExecution" required>
+      The main function executed when this flow is invoked. Receives `context` and `params` (which includes the trigger payload via `params.onTrigger.results`).
+    </ParamField>
+
+    <ParamField path="isSynchronous" type="boolean" default="false">
+      When `true`, the flow responds synchronously to the HTTP request that triggered it, returning the execution result in the response body.
+    </ParamField>
+
+    <ParamField path="isAgentFlow" type="boolean" default="false">
+      When `true`, this flow is an AI agent flow exposed on the integration's MCP server.
+    </ParamField>
+
+    <ParamField path="retryConfig" type="RetryConfig">
+      Retry configuration for this flow when execution fails.
+
+      <Expandable title="RetryConfig fields">
+        <ParamField path="maxAttempts" type="number" required>
+          Maximum number of retry attempts. Must be between 0 and 10.
+        </ParamField>
+        <ParamField path="delayMinutes" type="number" required>
+          Delay in minutes between retry attempts. Must be between 0 and 60.
+        </ParamField>
+        <ParamField path="usesExponentialBackoff" type="boolean" required>
+          When `true`, uses exponential backoff to calculate the delay between attempts.
+        </ParamField>
+        <ParamField path="uniqueRequestIdField" type="string">
+          Name of the field in the trigger payload to use as a unique request ID for retry deduplication.
+        </ParamField>
+      </Expandable>
+    </ParamField>
+
+    <ParamField path="queueConfig" type="QueueConfig">
+      Queue configuration controlling how concurrent executions are handled. See queue config variants below.
+    </ParamField>
+
+    <ParamField path="endpointSecurityType" type="EndpointSecurityType" default="customer_optional">
+      Security configuration for this flow's endpoint URL.
+
+      Accepted values:
+      - `"unsecured"` — No authentication required.
+      - `"customer_optional"` — Customer API key is optional.
+      - `"customer_required"` — Customer API key is required.
+      - `"organization"` — Uses organization-level API keys.
+    </ParamField>
+
+    <ParamField path="organizationApiKeys" type="string[]">
+      List of API keys for the endpoint when `endpointSecurityType` is `"organization"`.
+    </ParamField>
+
+    <ParamField path="errorConfig" type="StepErrorConfig">
+      Error handling configuration for steps within this flow.
+
+      <Expandable title="StepErrorConfig fields">
+        <ParamField path="errorHandlerType" type="StepErrorHandlerType" required>
+          The type of error handler: `"fail"`, `"ignore"`, or `"retry"`.
+        </ParamField>
+        <ParamField path="maxAttempts" type="number">
+          Maximum number of retry attempts (0–5). Only applies when `errorHandlerType` is `"retry"`.
+        </ParamField>
+        <ParamField path="delaySeconds" type="number">
+          Delay in seconds between retry attempts (0–60).
+        </ParamField>
+        <ParamField path="usesExponentialBackoff" type="boolean" default="false">
+          When `true`, uses exponential backoff between step retry attempts.
+        </ParamField>
+        <ParamField path="ignoreFinalError" type="boolean" default="false">
+          When `true`, ignores the final error after the last retry attempt.
+        </ParamField>
+      </Expandable>
+    </ParamField>
+
+    <ParamField path="preprocessFlowConfig" type="PreprocessFlowConfig">
+      Preprocess flow configuration for when this flow's result contains flow routing attributes. Only one flow per integration may define this.
+
+      <Expandable title="PreprocessFlowConfig fields">
+        <ParamField path="flowNameField" type="string" required>
+          Name of the field in the returned payload used to route to the next flow.
+        </ParamField>
+        <ParamField path="externalCustomerIdField" type="string">
+          Name of the field used as the external customer ID.
+        </ParamField>
+        <ParamField path="externalCustomerUserIdField" type="string">
+          Name of the field used as the external customer user ID.
+        </ParamField>
+      </Expandable>
+    </ParamField>
+
+    <ParamField path="onInstanceDeploy" type="TriggerEventFunction">
+      Function executed when an instance of this integration is deployed.
+    </ParamField>
+
+    <ParamField path="onInstanceDelete" type="TriggerEventFunction">
+      Function executed when an instance of this integration is deleted.
+    </ParamField>
+
+    <ParamField path="webhookLifecycleHandlers" type="object">
+      Optional handlers for webhook lifecycle events.
+
+      <Expandable title="webhookLifecycleHandlers fields">
+        <ParamField path="create" type="TriggerEventFunction" required>
+          Function executed to configure (register) the webhook with the external service.
+        </ParamField>
+        <ParamField path="delete" type="TriggerEventFunction" required>
+          Function executed to remove (deregister) the webhook from the external service.
+        </ParamField>
+      </Expandable>
+    </ParamField>
+
+    <ParamField path="schemas" type="Record<string, FlowDefinitionFlowSchema> & { invoke: FlowDefinitionFlowSchema }">
+      Optional JSON Schema definitions for this flow. Currently used only with AI agent flows. Must include an `invoke` key.
+
+      <Expandable title="FlowDefinitionFlowSchema fields">
+        <ParamField path="title" type="string">
+          Title for the schema.
+        </ParamField>
+        <ParamField path="$comment" type="string">
+          Optional comment.
+        </ParamField>
+        <ParamField path="$schema" type="string">
+          JSON Schema version URI. Defaults to `"https://json-schema.org/draft/2020-12/schema"`.
+        </ParamField>
+        <ParamField path="properties" type="Record<string, { description: string; type?: string }>" required>
+          Properties in the schema, each with a description and optional type.
+        </ParamField>
+        <ParamField path="required" type="string[]">
+          List of required property names.
+        </ParamField>
+      </Expandable>
+    </ParamField>
+  </Expandable>
+
+  <Expandable title="Standard flow fields (triggerType: 'standard' or unset)">
+    <ParamField path="triggerType" type="'standard'">
+      Set to `"standard"` (or omit) for webhook and scheduled flows.
+    </ParamField>
+
+    <ParamField path="schedule" type="(ValueExpression<string> | ConfigVarExpression) & { timezone?: string }">
+      Schedule configuration for automatically-executed flows. Use a cron expression as a `value`, or reference a schedule config variable with `configVar`.
+    </ParamField>
+
+    <ParamField path="onTrigger" type="TriggerReference | TriggerPerformFunction">
+      The trigger function for this flow. Accepts either a reference to a component trigger or an inline function. If omitted, a default webhook trigger is used.
+    </ParamField>
+  </Expandable>
+
+  <Expandable title="Polling flow fields (triggerType: 'polling')">
+    <ParamField path="triggerType" type="'polling'" required>
+      Must be `"polling"` to use a polling trigger. Polling flows run on a schedule and have access to `context.polling.*` functions for managing state between runs.
+    </ParamField>
+
+    <ParamField path="schedule" type="(ValueExpression<string> | ConfigVarExpression) & { timezone?: string }" required>
+      Required for polling flows. Defines the polling frequency as a cron expression.
+    </ParamField>
+
+    <ParamField path="onTrigger" type="PollingTriggerPerformFunction" required>
+      Required for polling flows. The trigger function that runs on each poll cycle.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Queue config variants
+
+The `queueConfig` field accepts one of the following shapes:
+
+<Tabs>
+  <Tab title="ParallelQueueConfig">
+    All requests are processed simultaneously with no limits.
+
+    ```typescript
+    queueConfig: {
+      type: "parallel",
+    }
+    ```
+  </Tab>
+  <Tab title="ThrottledQueueConfig">
+    Limits the maximum number of concurrent executions per instance.
+
+    ```typescript
+    queueConfig: {
+      type: "throttled",
+      concurrencyLimit: 5,    // 2–15
+      dedupeIdField: "requestId", // optional
+    }
+    ```
+  </Tab>
+  <Tab title="SequentialQueueConfig">
+    Processes one execution at a time, in the order received.
+
+    ```typescript
+    queueConfig: {
+      type: "sequential",
+      dedupeIdField: "requestId", // optional
+    }
+    ```
+  </Tab>
+  <Tab title="StandardQueueConfig">
+    Fine-grained queue control without a fixed processing mode.
+
+    ```typescript
+    queueConfig: {
+      usesFifoQueue: true,         // FIFO ordering
+      dedupeIdField: "requestId",  // optional
+      singletonExecutions: false,  // only for scheduled/polling flows
+      concurrencyLimit: 4,         // 2–15
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Return type
+
+<ResponseField name="flow" type="T">
+  The same flow definition object passed in, unchanged. The function is used for type-checking and inference.
+</ResponseField>
+
+## Examples
+
+<CodeGroup>
+
+```typescript Standard webhook flow
+import { flow } from "@prismatic-io/spectral";
+
+const syncFlow = flow({
+  name: "Sync Records",
+  stableKey: "sync-records",
+  description: "Processes incoming webhook payloads.",
+  isSynchronous: false,
+  endpointSecurityType: "customer_optional",
+  retryConfig: {
+    maxAttempts: 3,
+    delayMinutes: 5,
+    usesExponentialBackoff: true,
+  },
+  onExecution: async (context, params) => {
+    const payload = params.onTrigger.results;
+    context.logger.info("Received payload", { payload });
+    return { data: null };
+  },
+});
+```
+
+```typescript Scheduled flow
+import { flow } from "@prismatic-io/spectral";
+
+const scheduledFlow = flow({
+  name: "Nightly Sync",
+  stableKey: "nightly-sync",
+  schedule: {
+    value: "0 2 * * *", // every day at 2am UTC
+    timezone: "UTC",
+  },
+  onExecution: async (context, params) => {
+    context.logger.info("Running nightly sync");
+    return { data: null };
+  },
+});
+```
+
+```typescript Polling flow
+import { flow } from "@prismatic-io/spectral";
+
+const pollingFlow = flow({
+  name: "Poll for Changes",
+  stableKey: "poll-for-changes",
+  triggerType: "polling",
+  schedule: {
+    value: "*/15 * * * *", // every 15 minutes
+    timezone: "UTC",
+  },
+  onTrigger: async (context, params) => {
+    const lastState = await context.polling.getState();
+    // ... check for new items since lastState
+    return { payload: { headers: {}, body: { data: [] } } };
+  },
+  onExecution: async (context, params) => {
+    const items = params.onTrigger.results.body.data;
+    context.logger.info(`Processing ${items.length} items`);
+    return { data: null };
+  },
+});
+```
+
+```typescript AI agent flow
+import { flow } from "@prismatic-io/spectral";
+
+const agentFlow = flow({
+  name: "Query Data",
+  stableKey: "query-data",
+  isAgentFlow: true,
+  schemas: {
+    invoke: {
+      properties: {
+        query: {
+          description: "The natural language query to execute.",
+          type: "string",
+        },
+      },
+      required: ["query"],
+    },
+  },
+  onExecution: async (context, params) => {
+    const { query } = params.onTrigger.results.body.data;
+    return { data: { result: `Processed: ${query}` } };
+  },
+});
+```
+
+</CodeGroup>
+
+## Related
+
+- [`integration()`](/api-reference/integration) — The parent function that accepts an array of flows.
+- [`configPage()`](/api-reference/config-page) — Define config wizard pages referenced in flows.
+- [`componentManifest()`](/api-reference/component-manifest) — Register components whose actions are available in `context.components`.

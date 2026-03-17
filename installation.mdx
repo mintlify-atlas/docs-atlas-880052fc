@@ -1,0 +1,213 @@
+---
+title: "Installation"
+description: "Install Spectral, configure TypeScript, and set up your development environment."
+---
+
+## Install the package
+
+Spectral is published to npm as `@prismatic-io/spectral`. Install it as a regular dependency — it is required at runtime for compiled connectors and integrations.
+
+<CodeGroup>
+
+```bash npm
+npm install @prismatic-io/spectral
+```
+
+```bash yarn
+yarn add @prismatic-io/spectral
+```
+
+```bash pnpm
+pnpm add @prismatic-io/spectral
+```
+
+```bash bun
+bun add @prismatic-io/spectral
+```
+
+</CodeGroup>
+
+The current version is `10.16.5`. Check [npm](https://www.npmjs.com/package/@prismatic-io/spectral) for the latest release.
+
+## TypeScript configuration
+
+Spectral is written in TypeScript and ships its own type definitions. Your project must use TypeScript to get accurate type checking and IDE autocompletion.
+
+Create or update your `tsconfig.json` with the following recommended settings:
+
+```json tsconfig.json
+{
+  "compilerOptions": {
+    "target": "ES2019",
+    "module": "commonjs",
+    "lib": ["ES2019"],
+    "strict": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "declaration": true,
+    "declarationMap": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
+```
+
+<Warning>
+  Setting `strict: true` is strongly recommended. Spectral's generic types for `action`, `input`, and `connection` are designed to work with strict mode and provide the best type narrowing when it is enabled.
+</Warning>
+
+## Dev environment setup
+
+### Node.js version
+
+Spectral requires Node.js 18 or later. Use a version manager such as [nvm](https://github.com/nvm-sh/nvm) or [fnm](https://github.com/Schachte/fnm) to manage Node.js versions across projects.
+
+```bash
+# Check your current Node.js version
+node --version
+```
+
+### Recommended project structure
+
+A typical custom connector project has the following layout:
+
+```
+my-connector/
+├── src/
+│   ├── index.ts          # component() entry point
+│   ├── actions.ts        # action definitions
+│   ├── connections.ts    # connection definitions
+│   ├── inputs.ts         # shared input definitions
+│   └── index.test.ts     # unit tests
+├── icon.png              # component icon (used in Prismatic UI)
+├── package.json
+└── tsconfig.json
+```
+
+### Test runner
+
+Spectral's `testing` module works with any test framework. The Spectral package itself uses [Vitest](https://vitest.dev/). To use Vitest in your connector project:
+
+```bash npm
+npm install --save-dev vitest
+```
+
+Add a test script to your `package.json`:
+
+```json package.json
+{
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  }
+}
+```
+
+## Available binary tools
+
+Spectral ships two CLI binaries that become available in your `node_modules/.bin` directory after installation.
+
+### `component-manifest`
+
+Generates a type-safe TypeScript manifest for a custom component. The manifest is used to get full type checking and autocompletion when referencing your component's actions from code-native integrations.
+
+```bash
+npx component-manifest
+```
+
+Run this command from your component's root directory after building. The generated manifest file can be committed to source control and imported by code-native integration packages.
+
+### `cni-component-manifest`
+
+Generates a component manifest specifically for code-native integrations (CNI). Use this when your code-native integration references other Prismatic components and you want compile-time safety over those component actions.
+
+```bash
+npx cni-component-manifest
+```
+
+<Tip>
+  Add both commands to your `package.json` `scripts` block so they run as part of your build process, for example: `"manifest": "tsc && component-manifest"`.
+</Tip>
+
+## Workspace and monorepo setup
+
+If you maintain multiple connectors or a connector alongside code-native integrations, a monorepo layout keeps dependencies and build tooling centralized.
+
+### npm workspaces
+
+```json package.json
+{
+  "name": "my-integrations",
+  "private": true,
+  "workspaces": [
+    "packages/my-connector",
+    "packages/my-other-connector",
+    "packages/cni"
+  ]
+}
+```
+
+Install Spectral once at the workspace root and let npm hoist it:
+
+```bash
+npm install @prismatic-io/spectral
+```
+
+### Sharing inputs and connections across packages
+
+Common inputs and connection definitions can live in a shared internal package:
+
+```
+packages/
+├── shared/
+│   ├── src/
+│   │   ├── inputs.ts
+│   │   └── connections.ts
+│   └── package.json
+├── connector-a/
+│   └── package.json    # depends on "@my-org/shared"
+└── connector-b/
+    └── package.json    # depends on "@my-org/shared"
+```
+
+### TypeScript project references
+
+For faster incremental builds in a monorepo, use TypeScript project references:
+
+```json packages/connector-a/tsconfig.json
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "references": [
+    { "path": "../shared" }
+  ]
+}
+```
+
+Build all packages from the root using composite mode:
+
+```bash
+npx tsc --build
+```
+
+<Note>
+  When using project references, set `"composite": true` and `"declaration": true` in each referenced package's `tsconfig.json`.
+</Note>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build a working component with an action, connection, and local test in minutes.
+  </Card>
+  <Card title="Custom connectors" icon="plug" href="/custom-connectors/overview">
+    Deep dive into actions, triggers, data sources, and connections.
+  </Card>
+</CardGroup>

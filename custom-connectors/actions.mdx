@@ -1,0 +1,276 @@
+---
+title: 'Actions'
+description: 'Define the operations your connector performs, including API calls, data transformation, and flow control.'
+---
+
+An action is a single unit of work exposed by a connector — for example, "Create Contact" or "Send Email". Actions are defined with `action()` and collected in the `actions` field of `component()`.
+
+## ActionDefinition type
+
+```typescript
+interface ActionDefinition<
+  TInputs extends Inputs,
+  TConfigVars extends ConfigVarResultCollection,
+  TAllowsBranching extends boolean,
+  TReturn extends ActionPerformReturn<TAllowsBranching, unknown>,
+> {
+  /** How this action appears in the Prismatic UI. */
+  display: ActionDisplayDefinition;
+  /** The function that runs when this action is invoked. */
+  perform: ActionPerformFunction<TInputs, TConfigVars, ..., TAllowsBranching, TReturn>;
+  /** Input fields presented to integration builders. */
+  inputs: TInputs;
+  /** If true, execution of the flow stops after this action completes. */
+  terminateExecution?: boolean;
+  /** If true, this action breaks out of an enclosing loop step. */
+  breakLoop?: boolean;
+  /** If true, this action routes execution to one of multiple branches. */
+  allowsBranching?: TAllowsBranching;
+  /** Fixed branch names (when allowsBranching is true). */
+  staticBranchNames?: string[];
+  /** The input key whose value contains the dynamic branch name at runtime. */
+  dynamicBranchInput?: string;
+  /** An example of the value returned by perform, used in the UI. */
+  examplePayload?: Awaited<ReturnType<this["perform"]>>;
+}
+```
+
+The `display` field uses `ActionDisplayDefinition`:
+
+```typescript
+interface ActionDisplayDefinition {
+  label: string;        // Name shown in the step list
+  description: string;  // Shown in the step configuration panel
+  directions?: string;  // Extra guidance shown to the integration builder
+  important?: boolean;  // Highlights this action as commonly used
+}
+```
+
+## The perform function
+
+Every action must have a `perform` function with this signature:
+
+```typescript
+(context: ActionContext, params: ActionInputParameters<TInputs>) => Promise<ActionPerformReturn>
+```
+
+### Context object
+
+The `context` parameter provides platform services and metadata:
+
+| Field | Type | Description |
+|---|---|---|
+| `logger` | `ActionLogger` | Structured logger (see below) |
+| `instanceState` | `Record<string, unknown>` | Flow-specific key/value store persisted between executions |
+| `crossFlowState` | `Record<string, unknown>` | Key/value store shared across all flows of an instance |
+| `executionState` | `Record<string, unknown>` | Key/value store scoped to the current execution only |
+| `integrationState` | `Record<string, unknown>` | Key/value store shared across all flows and all versions of an integration |
+| `configVars` | `TConfigVars` | Config variable values set by the integration builder |
+| `customer` | `CustomerAttributes` | Attributes of the customer the instance belongs to |
+| `instance` | `InstanceAttributes` | Attributes of the currently running instance |
+| `user` | `UserAttributes` | Attributes of the user associated with a user-level config |
+| `integration` | `IntegrationAttributes` | Attributes of the integration being executed |
+| `flow` | `FlowAttributes` | Attributes of the currently executing flow |
+| `stepId` | `string` | Unique ID for this step in the integration |
+| `executionId` | `string` | Unique ID for this specific execution |
+| `webhookUrls` | `Record<string, string>` | Webhook URLs for all flows on this instance |
+| `webhookApiKeys` | `Record<string, string[]>` | Webhook API keys for all flows on this instance |
+| `invokeUrl` | `string` | URL used to invoke the current execution |
+| `startedAt` | `string` | UTC timestamp when execution started |
+| `invokeFlow` | `FlowInvoker` | Function to trigger another flow programmatically |
+| `components` | `object` | Other component actions registered via `componentRegistry` |
+| `debug` | `DebugContext` | Tools for profiling time and memory usage |
+| `isSimulatedTestExecution` | `boolean` | True when running with simulated test data |
+
+### Logger
+
+The `context.logger` object exposes structured logging methods that integrate with Prismatic's execution logs:
+
+```typescript
+interface ActionLogger {
+  metric: (...args: unknown[]) => void;
+  trace: (...args: unknown[]) => void;
+  debug: (...args: unknown[]) => void;
+  info: (...args: unknown[]) => void;
+  log: (...args: unknown[]) => void;
+  warn: (...args: unknown[]) => void;
+  error: (...args: unknown[]) => void;
+}
+```
+
+```typescript
+perform: async (context, params) => {
+  context.logger.info("Fetching records from API", { userId: params.userId });
+  // ...
+  context.logger.warn("Rate limit approaching", { remaining: headers["x-ratelimit-remaining"] });
+}
+```
+
+## ActionPerformReturn
+
+All `perform` functions must return a `Promise` that resolves to an `ActionPerformReturn`.
+
+### Standard return
+
+```typescript
+interface ActionPerformDataReturn<ReturnData> {
+  /** The main data payload of the action result. */
+  data: ReturnData;
+  /** MIME type of the data (e.g., "application/json", "image/png"). */
+  contentType?: string;
+  /** HTTP status code for synchronous webhook responses. */
+  statusCode?: number;
+  /** HTTP headers for synchronous webhook responses. */
+  headers?: Record<string, string>;
+  /** Data to persist in flow-specific instance state. */
+  instanceState?: Record<string, unknown>;
+  /** Data to persist across all flows. */
+  crossFlowState?: Record<string, unknown>;
+  /** Data available for the duration of this execution only. */
+  executionState?: Record<string, unknown>;
+  /** Data shared across all flows of all versions of this integration. */
+  integrationState?: Record<string, unknown>;
+  /** Set by the platform to indicate failure. */
+  failed?: boolean;
+  /** Set by the platform with error details on failure. */
+  error?: Record<string, unknown>;
+}
+```
+
+### Branching return
+
+When `allowsBranching: true`, the return type must include a `branch` field:
+
+```typescript
+interface ActionPerformBranchingDataReturn<ReturnData>
+  extends ActionPerformDataReturn<ReturnData> {
+  /** The name of the branch to take. Must match a static or dynamic branch name. */
+  branch: string;
+}
+```
+
+## Complete example
+
+The following action makes an authenticated API call, persists state, and returns structured data:
+
+```typescript
+import { action, input } from "@prismatic-io/spectral";
+
+export const createContact = action({
+  display: {
+    label: "Create Contact",
+    description: "Create a new contact record in the CRM",
+    directions: "Provide the contact's name and email address.",
+    important: true,
+  },
+  inputs: {
+    connection: input({
+      label: "Connection",
+      type: "connection",
+      required: true,
+    }),
+    firstName: input({
+      label: "First Name",
+      type: "string",
+      required: true,
+      example: "Alice",
+    }),
+    lastName: input({
+      label: "Last Name",
+      type: "string",
+      required: true,
+      example: "Smith",
+    }),
+    email: input({
+      label: "Email Address",
+      type: "string",
+      required: true,
+      placeholder: "alice@example.com",
+    }),
+  },
+  perform: async (context, params) => {
+    const { connection, firstName, lastName, email } = params;
+    const apiKey = connection.fields.apiKey as string;
+    const baseUrl = connection.fields.baseUrl as string;
+
+    context.logger.info("Creating contact", { email });
+
+    const response = await fetch(`${baseUrl}/contacts`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ firstName, lastName, email }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`API error ${response.status}: ${errorBody}`);
+    }
+
+    const contact = await response.json();
+
+    context.logger.info("Contact created", { id: contact.id });
+
+    return {
+      data: contact,
+      instanceState: {
+        ...context.instanceState,
+        lastCreatedContactId: contact.id,
+      },
+    };
+  },
+  examplePayload: {
+    data: {
+      id: "cnt_01HXYZ",
+      firstName: "Alice",
+      lastName: "Smith",
+      email: "alice@example.com",
+      createdAt: "2024-01-15T10:30:00Z",
+    },
+  },
+});
+```
+
+## Flow control fields
+
+### terminateExecution
+
+Set `terminateExecution: true` to stop the flow immediately after this action completes, regardless of any subsequent steps:
+
+```typescript
+export const abortOnInvalidPayload = action({
+  display: {
+    label: "Abort on Invalid Payload",
+    description: "Stop flow execution if the incoming data is invalid",
+  },
+  inputs: { /* ... */ },
+  terminateExecution: true,
+  perform: async (context, params) => {
+    return { data: { reason: "Payload validation failed" } };
+  },
+});
+```
+
+### breakLoop
+
+Set `breakLoop: true` to exit from an enclosing loop step:
+
+```typescript
+export const stopProcessing = action({
+  display: {
+    label: "Stop Processing",
+    description: "Break out of the current loop",
+  },
+  inputs: {},
+  breakLoop: true,
+  perform: async (context, params) => {
+    return { data: null };
+  },
+});
+```
+
+<Tip>
+For branching actions, see the [Branching](/custom-connectors/branching) page for full examples with `allowsBranching`, `staticBranchNames`, and `dynamicBranchInput`.
+</Tip>

@@ -1,0 +1,299 @@
+---
+title: action
+description: Define an action that can be used as a step in a Prismatic integration flow.
+---
+
+The `action` function creates an action object that can be referenced by a custom component. Actions are the building blocks of integration flows — each action performs a discrete unit of work, such as making an API call, transforming data, or writing to a database.
+
+## Function signature
+
+```typescript
+function action<
+  TInputs extends Inputs,
+  TConfigVars extends ConfigVarResultCollection,
+  TAllowsBranching extends boolean,
+  TReturn extends ActionPerformReturn<TAllowsBranching, unknown>,
+>(
+  definition: ActionDefinition<TInputs, TConfigVars, TAllowsBranching, TReturn>
+): ActionDefinition<TInputs, TConfigVars, TAllowsBranching, TReturn>
+```
+
+The function validates the shape of the definition object and returns it unchanged.
+
+## Parameters
+
+<ParamField path="definition" type="ActionDefinition" required>
+  An object describing the action. See fields below.
+</ParamField>
+
+### `ActionDefinition` fields
+
+<ParamField path="definition.display" type="ActionDisplayDefinition" required>
+  Controls how the action appears in the Prismatic UI.
+
+  <Expandable title="ActionDisplayDefinition fields">
+    <ParamField path="display.label" type="string" required>
+      Human-readable name shown in the step editor.
+    </ParamField>
+    <ParamField path="display.description" type="string" required>
+      Describes what this action does.
+    </ParamField>
+    <ParamField path="display.directions" type="string">
+      Additional guidance shown to the integration builder when configuring this action.
+    </ParamField>
+    <ParamField path="display.important" type="boolean">
+      When `true`, highlights this action as commonly used in the parent component. Use sparingly.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="definition.perform" type="ActionPerformFunction" required>
+  The async function that runs when this action is invoked. Receives `context` and `params`.
+
+  ```typescript
+  perform: async (context: ActionContext, params: ActionInputParameters<TInputs>) => Promise<TReturn>
+  ```
+
+  <Expandable title="ActionContext fields">
+    <ParamField path="context.logger" type="ActionLogger">
+      Structured logger. Methods: `trace`, `debug`, `info`, `log`, `warn`, `error`, `metric`. Log output is captured for debugging in the Prismatic UI.
+    </ParamField>
+    <ParamField path="context.instanceState" type="Record<string, unknown>">
+      Flow-specific key/value store persisted between executions of this instance.
+    </ParamField>
+    <ParamField path="context.crossFlowState" type="Record<string, unknown>">
+      Key/value store shared between all flows of an instance, persisted between executions.
+    </ParamField>
+    <ParamField path="context.executionState" type="Record<string, unknown>">
+      Key/value store available only for the duration of the current execution.
+    </ParamField>
+    <ParamField path="context.integrationState" type="Record<string, unknown>">
+      Key/value store shared between all flows and all versions of an integration instance.
+    </ParamField>
+    <ParamField path="context.configVars" type="TConfigVars">
+      Key/value collection of config variables for the integration instance.
+    </ParamField>
+    <ParamField path="context.components" type="object">
+      Available component actions registered in the `componentRegistry`. Allows invoking other component actions programmatically.
+    </ParamField>
+    <ParamField path="context.stepId" type="string">
+      Unique ID of this step in the integration.
+    </ParamField>
+    <ParamField path="context.executionId" type="string">
+      Unique ID for this specific execution run.
+    </ParamField>
+    <ParamField path="context.webhookUrls" type="Record<string, string>">
+      Webhook URLs for all flows of the currently running instance.
+    </ParamField>
+    <ParamField path="context.webhookApiKeys" type="Record<string, string[]>">
+      Webhook API keys for all flows of the currently running instance.
+    </ParamField>
+    <ParamField path="context.invokeUrl" type="string">
+      The URL used to invoke the current execution.
+    </ParamField>
+    <ParamField path="context.customer" type="CustomerAttributes">
+      Attributes of the customer for whom the instance is executing: `id`, `name`, `externalId`.
+    </ParamField>
+    <ParamField path="context.instance" type="InstanceAttributes">
+      Attributes of the running instance: `id`, `name`.
+    </ParamField>
+    <ParamField path="context.user" type="UserAttributes">
+      Attributes of the user associated with a User Level Configuration: `id`, `name`, `email`, `externalId`.
+    </ParamField>
+    <ParamField path="context.integration" type="IntegrationAttributes">
+      Attributes of the integration being executed: `id`, `name`, `versionSequenceId`.
+    </ParamField>
+    <ParamField path="context.flow" type="FlowAttributes">
+      Attributes of the currently executing flow: `id`, `name`.
+    </ParamField>
+    <ParamField path="context.startedAt" type="string">
+      UTC timestamp for when execution started.
+    </ParamField>
+    <ParamField path="context.invokeFlow" type="FlowInvoker">
+      Function to invoke another flow: `invokeFlow(flowName, data?, config?, source?)`.
+    </ParamField>
+    <ParamField path="context.executionFrame" type="ExecutionFrame">
+      Reference to the current execution and step, including `invokedByExecutionJWT`, `invokedByExecutionStartedAt`, `executionId`, `stepName`, `loopPath`, and `componentActionKey`.
+    </ParamField>
+    <ParamField path="context.debug" type="DebugContext">
+      Debug helpers. `debug.enabled` indicates debug mode. Provides `debug.timeElapsed.mark()`, `debug.timeElapsed.measure()`, `debug.memoryUsage()`, and `debug.results`.
+    </ParamField>
+    <ParamField path="context.flowSchemas" type="FlowSchemas">
+      JSON schemas enabling flows to be used as AI function calls.
+    </ParamField>
+    <ParamField path="context.isSimulatedTestExecution" type="boolean">
+      `true` when the execution is running with simulated test data.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="definition.inputs" type="TInputs" required>
+  A record of input field definitions presented to the integration builder. Values are resolved and passed to `perform` via `params`. See [`input`](/api-reference/input).
+</ParamField>
+
+<ParamField path="definition.terminateExecution" type="boolean">
+  When `true`, execution of the flow terminates after this action completes.
+</ParamField>
+
+<ParamField path="definition.breakLoop" type="boolean">
+  When `true`, this action breaks out of the enclosing loop step.
+</ParamField>
+
+<ParamField path="definition.allowsBranching" type="boolean">
+  When `true`, this action supports conditional branching. The `perform` function must return a result containing a `branch` field. See [branching](https://prismatic.io/docs/custom-connectors/branching/).
+</ParamField>
+
+<ParamField path="definition.staticBranchNames" type="string[]">
+  Static list of branch names when `allowsBranching` is `true`. Use when branch names are known at design time.
+</ParamField>
+
+<ParamField path="definition.dynamicBranchInput" type="string">
+  The key of the input field whose value determines branch names at runtime. Use when branches are determined dynamically.
+</ParamField>
+
+<ParamField path="definition.examplePayload" type="Awaited<ReturnType<perform>>">
+  An example of the return value from `perform`. Used in the Prismatic UI to preview output shape.
+</ParamField>
+
+## Return type
+
+The `perform` function must return a `Promise` resolving to an `ActionPerformReturn`:
+
+<ResponseField name="data" type="unknown" required>
+  The payload data returned by the action.
+</ResponseField>
+
+<ResponseField name="contentType" type="string">
+  MIME type of the returned data (e.g., `"application/json"`).
+</ResponseField>
+
+<ResponseField name="statusCode" type="number">
+  HTTP status code used when this action terminates a synchronous invocation.
+</ResponseField>
+
+<ResponseField name="headers" type="Record<string, string>">
+  HTTP headers sent back when this action terminates a synchronous invocation.
+</ResponseField>
+
+<ResponseField name="instanceState" type="Record<string, unknown>">
+  Values to persist in the flow-specific instance state for subsequent executions.
+</ResponseField>
+
+<ResponseField name="crossFlowState" type="Record<string, unknown>">
+  Values to persist in the cross-flow state.
+</ResponseField>
+
+<ResponseField name="executionState" type="Record<string, unknown>">
+  Values to persist for the duration of the current execution.
+</ResponseField>
+
+<ResponseField name="integrationState" type="Record<string, unknown>">
+  Values to persist across all flows and versions of an integration instance.
+</ResponseField>
+
+<ResponseField name="branch" type="string">
+  Required when `allowsBranching` is `true`. The name of the branch to take.
+</ResponseField>
+
+<ResponseField name="failed" type="boolean">
+  Set by the platform to indicate whether the action failed.
+</ResponseField>
+
+<ResponseField name="error" type="Record<string, unknown>">
+  Set by the platform with error details when the action fails.
+</ResponseField>
+
+## Example
+
+```typescript
+import { action, input } from "@prismatic-io/spectral";
+
+export const listUsers = action({
+  display: {
+    label: "List Users",
+    description: "Retrieve a paginated list of users",
+    directions: "Provide a connection and optionally filter by status.",
+  },
+  inputs: {
+    connection: input({
+      label: "Connection",
+      type: "connection",
+      required: true,
+    }),
+    status: input({
+      label: "Status Filter",
+      type: "string",
+      required: false,
+      model: [
+        { label: "Active", value: "active" },
+        { label: "Inactive", value: "inactive" },
+      ],
+      comments: "Filter users by their account status.",
+    }),
+    maxResults: input({
+      label: "Max Results",
+      type: "string",
+      required: false,
+      default: "100",
+      placeholder: "1-1000",
+    }),
+  },
+  perform: async (context, params) => {
+    const { connection, status, maxResults } = params;
+    context.logger.info(`Fetching users with status: ${status}`);
+
+    // Use connection fields to authenticate
+    const apiKey = connection.fields.apiKey as string;
+
+    const users = await fetchUsers(apiKey, { status, limit: Number(maxResults) });
+
+    return {
+      data: users,
+      instanceState: { lastFetchedAt: new Date().toISOString() },
+    };
+  },
+  examplePayload: {
+    data: [{ id: "usr_123", name: "Alice", status: "active" }],
+  },
+});
+
+async function fetchUsers(apiKey: string, opts: { status?: string; limit: number }) {
+  // Implementation details
+  return [];
+}
+```
+
+### Branching action example
+
+```typescript
+import { action, input } from "@prismatic-io/spectral";
+
+export const checkStatus = action({
+  display: {
+    label: "Check Order Status",
+    description: "Branch based on order status",
+  },
+  inputs: {
+    orderId: input({ label: "Order ID", type: "string", required: true }),
+  },
+  allowsBranching: true,
+  staticBranchNames: ["Pending", "Shipped", "Delivered", "Cancelled"],
+  perform: async (context, params) => {
+    const order = await getOrder(params.orderId);
+    return {
+      data: order,
+      branch: order.status, // Must match one of staticBranchNames
+    };
+  },
+});
+
+async function getOrder(id: string) {
+  return { id, status: "Shipped" };
+}
+```
+
+## Related
+
+- [`input`](/api-reference/input) — Define inputs for an action
+- [`component`](/api-reference/component) — Register actions in a component
+- [`trigger`](/api-reference/trigger) — Define a trigger step

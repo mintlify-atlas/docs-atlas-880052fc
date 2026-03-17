@@ -1,0 +1,160 @@
+---
+title: 'invoke'
+description: 'Invoke an action definition in a unit test and get the result plus a mock logger.'
+---
+
+## Import
+
+```typescript
+import { invoke } from "@prismatic-io/spectral/dist/testing";
+```
+
+## Signature
+
+```typescript
+export const invoke = async <
+  TInputs extends Inputs,
+  TConfigVars extends ConfigVarResultCollection,
+  TAllowsBranching extends boolean,
+  TReturn extends ActionPerformReturn<TAllowsBranching, unknown>,
+>(
+  { perform }: ActionDefinition<TInputs, TConfigVars, TAllowsBranching, TReturn>,
+  params: ActionInputParameters<TInputs>,
+  context?: Partial<ActionContext<TConfigVars>>,
+): Promise<InvokeReturn<TReturn>>
+```
+
+`invoke` calls the `perform` function of an `ActionDefinition` with mock context and the params you provide. It returns both the action result and a mock logger you can assert against.
+
+## Parameters
+
+<ParamField path="action" type="ActionDefinition" required>
+  The action definition object to invoke. Only the `perform` function is used.
+</ParamField>
+
+<ParamField path="params" type="ActionInputParameters<TInputs>" required>
+  An object containing the input parameter values for the action. Keys must match the input keys defined on the action.
+</ParamField>
+
+<ParamField path="context" type="Partial<ActionContext<TConfigVars>>">
+  Optional partial action context. Overrides the default mock context that `invoke` constructs automatically. Use this to supply custom `configVars`, `instanceState`, or other context fields.
+
+  <Expandable title="default context fields">
+    When no context override is provided, the following defaults are used:
+
+    | Field | Default value |
+    |---|---|
+    | `logger` | `loggerMock()` |
+    | `instanceState` | `{}` |
+    | `crossFlowState` | `{}` |
+    | `executionState` | `{}` |
+    | `integrationState` | `{}` |
+    | `configVars` | `{}` |
+    | `stepId` | `"mockStepId"` |
+    | `executionId` | `"mockExecutionId"` |
+    | `invokeUrl` | `"https://example.com"` |
+    | `customer.id` | `"customerId"` |
+    | `instance.id` | `"instanceId"` |
+    | `user.id` | `"userId"` |
+    | `integration.id` | `"integrationId"` |
+    | `flow.id` | `"flowId"` |
+  </Expandable>
+</ParamField>
+
+## Return value
+
+```typescript
+interface InvokeReturn<ReturnData> {
+  result: ReturnData;
+  loggerMock: ActionLogger;
+}
+```
+
+<ResponseField name="result" type="TReturn" required>
+  The value returned by the action's `perform` function.
+</ResponseField>
+
+<ResponseField name="loggerMock" type="ActionLogger" required>
+  A mock logger with jest/vitest spy functions for each log level. Use this to assert that your action logged expected messages.
+
+  <Expandable title="loggerMock fields">
+    <ResponseField name="trace" type="spy function">
+      Spy on `console.trace` calls.
+    </ResponseField>
+    <ResponseField name="debug" type="spy function">
+      Spy on `console.debug` calls.
+    </ResponseField>
+    <ResponseField name="info" type="spy function">
+      Spy on `console.info` calls.
+    </ResponseField>
+    <ResponseField name="log" type="spy function">
+      Spy on `console.log` calls.
+    </ResponseField>
+    <ResponseField name="warn" type="spy function">
+      Spy on `console.warn` calls.
+    </ResponseField>
+    <ResponseField name="error" type="spy function">
+      Spy on `console.error` calls.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Examples
+
+<CodeGroup>
+
+```typescript Basic action test
+import { action, input } from "@prismatic-io/spectral";
+import { invoke } from "@prismatic-io/spectral/dist/testing";
+import { describe, expect, it } from "vitest";
+
+const greetAction = action({
+  display: { label: "Greet", description: "Returns a greeting" },
+  inputs: {
+    name: input({ label: "Name", type: "string" }),
+  },
+  perform: async (context, { name }) => {
+    context.logger.info(`Greeting ${name}`);
+    return { data: `Hello, ${name}!` };
+  },
+});
+
+describe("greetAction", () => {
+  it("returns a greeting", async () => {
+    const { result } = await invoke(greetAction, { name: "Alice" });
+    expect(result.data).toBe("Hello, Alice!");
+  });
+
+  it("logs the greeting", async () => {
+    const { loggerMock } = await invoke(greetAction, { name: "Alice" });
+    expect(loggerMock.info).toHaveBeenCalledWith("Greeting Alice");
+  });
+});
+```
+
+```typescript With context override
+import { invoke } from "@prismatic-io/spectral/dist/testing";
+
+// Supply configVars to test actions that read from config
+const { result } = await invoke(myAction, { inputKey: "value" }, {
+  configVars: {
+    "My API Key": "test-key-abc123",
+  },
+});
+```
+
+</CodeGroup>
+
+<Tip>
+  Destructure `result` and `loggerMock` in a single line:
+  ```typescript
+  const { result, loggerMock } = await invoke(myAction, params);
+  ```
+</Tip>
+
+## Related
+
+- [invokeTrigger](/api-reference/testing/invoke-trigger) — invoke a trigger definition
+- [invokeDataSource](/api-reference/testing/invoke-data-source) — invoke a data source definition
+- [loggerMock](/api-reference/testing/logger-mock) — the mock logger returned by `invoke`
+- [createHarness](/api-reference/testing/create-harness) — harness-based testing for full component objects

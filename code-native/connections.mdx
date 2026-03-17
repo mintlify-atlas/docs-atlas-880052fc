@@ -1,0 +1,281 @@
+---
+title: 'Connections'
+description: 'Define and use connection config variables in code-native integrations to manage customer credentials, OAuth tokens, and integration-agnostic connections.'
+---
+
+Connections represent the credentials and authentication details that a flow needs to communicate with an external system. In code-native integrations, connections are surfaced as config variables — customers provide their credentials in the config wizard, and flows receive them via `context.configVars` at runtime.
+
+## Defining a connection
+
+Use the `connection()`, `oauth2Connection()`, or `onPremConnection()` helpers to define a connection, then reference it from `connectionConfigVar()`.
+
+```typescript
+import { connection, input, connectionConfigVar } from "@prismatic-io/spectral";
+
+const acmeConnection = connection({
+  key: "acme-api",
+  display: {
+    label: "Acme API",
+    description: "Authenticate with your Acme account",
+  },
+  inputs: {
+    endpoint: input({
+      label: "API Endpoint",
+      type: "string",
+      required: true,
+      default: "https://api.acme.com",
+    }),
+    apiKey: input({
+      label: "API Key",
+      type: "password",
+      required: true,
+    }),
+  },
+});
+```
+
+## `connectionConfigVar()`
+
+Once you have a connection definition, wrap it in `connectionConfigVar()` and place it on a config page.
+
+```typescript
+import { configPage, connectionConfigVar } from "@prismatic-io/spectral";
+
+const connectionPage = configPage({
+  tagline: "Connect your Acme account",
+  elements: {
+    "Acme Connection": connectionConfigVar({
+      stableKey: "acme-connection",
+      dataType: "connection",
+      ...acmeConnection,
+    }),
+  },
+});
+```
+
+**Fields shared with all config vars:**
+
+<ParamField path="stableKey" type="string" required>
+  Permanent identifier for this connection config variable.
+</ParamField>
+
+<ParamField path="dataType" type="'connection'" required>
+  Must always be `"connection"` for connection config variables.
+</ParamField>
+
+<ParamField path="description" type="string">
+  Help text displayed in the config wizard.
+</ParamField>
+
+<ParamField path="permissionAndVisibilityType" type="'customer' | 'embedded' | 'organization'">
+  Controls who can see and edit this connection in the wizard. Defaults to `'customer'`.
+</ParamField>
+
+<ParamField path="onPremConnectionConfig" type="'allowed' | 'disallowed' | 'required'">
+  Whether the connection may use an on-premise agent.
+</ParamField>
+
+## Accessing connections in flow execution
+
+At runtime, connection values are available in `context.configVars` using the element name (the key in the `elements` object on the config page).
+
+```typescript
+flow({
+  name: "Sync Records",
+  stableKey: "sync-records",
+  onExecution: async (context, params) => {
+    // 'Acme Connection' is the element key defined on the config page
+    const connection = context.configVars["Acme Connection"];
+
+    // connection.fields contains the values the customer entered
+    const apiKey = connection.fields["apiKey"] as string;
+    const endpoint = connection.fields["endpoint"] as string;
+
+    const response = await fetch(`${endpoint}/records`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+
+    return { data: await response.json() };
+  },
+});
+```
+
+<Tip>
+TypeScript will infer the type of `context.configVars` from your config page definitions when you use module augmentation. See the Spectral SDK type augmentation docs for details.
+</Tip>
+
+## OAuth 2.0 connections
+
+For OAuth 2.0, use `oauth2Connection()` instead of `connection()`. Prismatic manages the token refresh lifecycle automatically.
+
+```typescript
+import { oauth2Connection, input, connectionConfigVar } from "@prismatic-io/spectral";
+
+const acmeOAuth = oauth2Connection({
+  key: "acme-oauth2",
+  display: {
+    label: "Acme OAuth 2.0",
+    description: "Authorize via Acme OAuth",
+  },
+  oauth2Type: "authorization_code",
+  inputs: {
+    authorizeUrl: input({
+      label: "Authorize URL",
+      type: "string",
+      default: "https://auth.acme.com/oauth/authorize",
+      required: true,
+    }),
+    tokenUrl: input({
+      label: "Token URL",
+      type: "string",
+      default: "https://auth.acme.com/oauth/token",
+      required: true,
+    }),
+    scopes: input({
+      label: "Scopes",
+      type: "string",
+      default: "read write",
+      required: true,
+    }),
+    clientId: input({ label: "Client ID", type: "string", required: true }),
+    clientSecret: input({ label: "Client Secret", type: "password", required: true }),
+  },
+});
+
+const oauthConfigVar = connectionConfigVar({
+  stableKey: "acme-oauth-connection",
+  dataType: "connection",
+  ...acmeOAuth,
+});
+```
+
+## Integration-agnostic connections
+
+Integration-agnostic connections are credentials that exist independently of any single integration. They are provisioned once and then referenced from multiple integrations.
+
+There are two variants:
+
+### `customerActivatedConnection()`
+
+Customers activate these connections themselves, typically through the Prismatic customer portal.
+
+```typescript
+import { customerActivatedConnection } from "@prismatic-io/spectral";
+
+const mySharedConn = customerActivatedConnection({
+  stableKey: "shared-acme-connection",
+});
+```
+
+Add it to your integration's `configPages` by including it as an element:
+
+```typescript
+configPage({
+  elements: {
+    "Shared Acme Connection": mySharedConn,
+  },
+})
+```
+
+### `organizationActivatedConnection()`
+
+Your organization activates these connections on behalf of customers. Customers cannot edit them.
+
+```typescript
+import { organizationActivatedConnection } from "@prismatic-io/spectral";
+
+const orgManagedConn = organizationActivatedConnection({
+  stableKey: "org-acme-connection",
+});
+```
+
+You can also place organization-activated connections in `scopedConfigVars` (outside any config page) when the connection should never appear in the wizard at all:
+
+```typescript
+export default integration({
+  name: "Internal Sync",
+  scopedConfigVars: {
+    "Internal DB": organizationActivatedConnection({
+      stableKey: "internal-db-conn",
+    }),
+  },
+  flows: [/* ... */],
+});
+```
+
+<Note>
+Both `customerActivatedConnection()` and `organizationActivatedConnection()` return an object with `dataType: "connection"` and `stableKey`. The Prismatic platform resolves the actual credential at runtime.
+</Note>
+
+## Comparing connection types
+
+| Type | Who provides credentials | Scope |
+|---|---|---|
+| `connectionConfigVar()` | Customer fills in during config wizard | Per-integration instance |
+| `customerActivatedConnection()` | Customer activates in customer portal | Integration-agnostic, reusable |
+| `organizationActivatedConnection()` | Organization sets up | Integration-agnostic, org-managed |
+
+## Complete example
+
+```typescript
+import {
+  integration,
+  flow,
+  configPage,
+  connectionConfigVar,
+  connection,
+  input,
+} from "@prismatic-io/spectral";
+
+const acmeConn = connection({
+  key: "acme-basic",
+  display: {
+    label: "Acme API",
+    description: "API key authentication for Acme",
+  },
+  inputs: {
+    apiKey: input({ label: "API Key", type: "password", required: true }),
+    baseUrl: input({
+      label: "Base URL",
+      type: "string",
+      required: true,
+      default: "https://api.acme.com/v2",
+    }),
+  },
+});
+
+export default integration({
+  name: "Acme Integration",
+
+  configPages: {
+    "Authentication": configPage({
+      tagline: "Connect your Acme account",
+      elements: {
+        "Acme API Connection": connectionConfigVar({
+          stableKey: "acme-api-connection",
+          dataType: "connection",
+          ...acmeConn,
+        }),
+      },
+    }),
+  },
+
+  flows: [
+    flow({
+      name: "Fetch Customers",
+      stableKey: "fetch-customers",
+      onExecution: async (context, params) => {
+        const { fields } = context.configVars["Acme API Connection"];
+        const apiKey = fields["apiKey"] as string;
+        const baseUrl = fields["baseUrl"] as string;
+
+        const res = await fetch(`${baseUrl}/customers`, {
+          headers: { "X-API-Key": apiKey },
+        });
+        const customers = await res.json();
+        return { data: customers };
+      },
+    }),
+  ],
+});
+```

@@ -1,0 +1,170 @@
+---
+title: 'integration()'
+description: 'Creates a code-native integration object that can be imported into Prismatic.'
+---
+
+The `integration()` function defines a complete code-native integration, including its flows, config pages, component registry, and metadata. It returns a converted integration object in the shape the Prismatic API expects.
+
+## Function signature
+
+```typescript
+export const integration = <
+  TInputs extends Inputs,
+  TActionInputs extends Inputs,
+  TPayload extends TriggerPayload = TriggerPayload,
+  TAllowsBranching extends boolean = boolean,
+  TResult extends TriggerResult<TAllowsBranching, TPayload> = TriggerResult<TAllowsBranching, TPayload>,
+  T extends IntegrationDefinition<TInputs, TActionInputs, TPayload, TAllowsBranching, TResult>
+    = IntegrationDefinition<TInputs, TActionInputs, TPayload, TAllowsBranching, TResult>,
+>(
+  definition: T,
+): ReturnType<typeof convertIntegration<...>>
+```
+
+<Note>
+  When the environment variable `DEBUG` is set to `"true"`, the function prints the generated YAML representation of the integration to the console via `console.info`.
+</Note>
+
+## Parameters
+
+<ParamField path="definition" type="IntegrationDefinition" required>
+  An object that describes the integration. See the fields below.
+
+  <Expandable title="IntegrationDefinition fields">
+    <ParamField path="name" type="string" required>
+      The unique name for this integration.
+    </ParamField>
+
+    <ParamField path="description" type="string">
+      Human-readable description for this integration.
+    </ParamField>
+
+    <ParamField path="iconPath" type="string">
+      Path to the icon image to use for this integration. The path should be relative to the built integration source.
+    </ParamField>
+
+    <ParamField path="category" type="string">
+      Category for this integration, used for organization in the Prismatic UI.
+    </ParamField>
+
+    <ParamField path="documentation" type="string">
+      Documentation URL or content for this integration.
+    </ParamField>
+
+    <ParamField path="version" type="string">
+      Version identifier for this integration.
+    </ParamField>
+
+    <ParamField path="labels" type="string[]">
+      Labels for this integration.
+    </ParamField>
+
+    <ParamField path="endpointType" type="EndpointType" default="flow_specific">
+      Endpoint type used by instances of this integration. When using anything other than `flow_specific`, a preprocess flow config must be specified.
+
+      Accepted values:
+      - `"flow_specific"` — Each flow has its own unique endpoint URL.
+      - `"instance_specific"` — All flows in an instance share one endpoint URL.
+      - `"shared_instance"` — All instances share a single endpoint URL.
+    </ParamField>
+
+    <ParamField path="triggerPreprocessFlowConfig" type="PreprocessFlowConfig">
+      Preprocess flow configuration for when the trigger payload contains the flow routing attributes. Cannot be specified together with a preprocess flow on a `flow`.
+
+      <Expandable title="PreprocessFlowConfig fields">
+        <ParamField path="flowNameField" type="string" required>
+          Name of the field in the trigger payload used to determine which flow to execute.
+        </ParamField>
+        <ParamField path="externalCustomerIdField" type="string">
+          Name of the field in the payload used as the external customer ID.
+        </ParamField>
+        <ParamField path="externalCustomerUserIdField" type="string">
+          Name of the field in the payload used as the external customer user ID.
+        </ParamField>
+      </Expandable>
+    </ParamField>
+
+    <ParamField path="flows" type="Flow[]" required>
+      Array of flows for this integration. Each flow defines a trigger and execution logic. See [`flow()`](/api-reference/flow).
+    </ParamField>
+
+    <ParamField path="configPages" type="ConfigPages">
+      Config wizard pages shown to customers when deploying an instance of this integration. See [`configPage()`](/api-reference/config-page).
+    </ParamField>
+
+    <ParamField path="userLevelConfigPages" type="UserLevelConfigPages">
+      Config wizard pages for user-level configuration. These pages appear in the user-level config wizard instead of the instance-level wizard.
+    </ParamField>
+
+    <ParamField path="scopedConfigVars" type="ScopedConfigVarMap">
+      Scoped config variables for this integration. Supports `OrganizationActivatedConnectionConfigVar` entries.
+    </ParamField>
+
+    <ParamField path="instanceProfile" type="string">
+      Instance profile to use for this integration. If not specified, the tenant's default instance profile is used.
+    </ParamField>
+
+    <ParamField path="componentRegistry" type="ComponentRegistry">
+      A registry of components this integration depends on. Used to make component actions available in `context.components` during flow execution. See [`componentManifest()`](/api-reference/component-manifest).
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Return type
+
+<ResponseField name="integration" type="object">
+  A converted integration object in the shape the Prismatic API expects, including a `codeNativeIntegrationYAML` property.
+</ResponseField>
+
+## Example
+
+```typescript
+import {
+  integration,
+  flow,
+  configPage,
+  configVar,
+  connectionConfigVar,
+} from "@prismatic-io/spectral";
+
+export default integration({
+  name: "My Integration",
+  description: "Syncs data between two services.",
+  iconPath: "icon.png",
+  category: "Data Sync",
+  version: "1.0.0",
+  labels: ["sync", "data"],
+  endpointType: "flow_specific",
+  flows: [
+    flow({
+      name: "Sync Data",
+      stableKey: "sync-data",
+      onExecution: async (context, params) => {
+        const { logger } = context;
+        logger.info("Running sync...");
+        return { data: null };
+      },
+    }),
+  ],
+  configPages: {
+    "Connection Setup": configPage({
+      tagline: "Connect your accounts",
+      elements: {
+        "My Connection": connectionConfigVar({
+          stableKey: "my-connection",
+          dataType: "connection",
+          inputs: {},
+        }),
+      },
+    }),
+  },
+});
+```
+
+## Related
+
+- [`flow()`](/api-reference/flow) — Define individual flows within an integration.
+- [`configPage()`](/api-reference/config-page) — Define config wizard pages.
+- [`configVar()`](/api-reference/config-var) — Define standard config variables.
+- [`connectionConfigVar()`](/api-reference/connection-config-var) — Define connection config variables.
+- [`componentManifest()`](/api-reference/component-manifest) — Register components used by the integration.

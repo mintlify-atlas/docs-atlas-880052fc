@@ -1,0 +1,415 @@
+---
+title: 'Flows'
+description: 'Define the execution logic for your code-native integration using standard and polling flow types, triggers, lifecycle hooks, retry policies, and queue configuration.'
+---
+
+A flow is the primary execution unit in a code-native integration. Each flow runs independently, has its own trigger, and contains an `onExecution` function that implements the flow's business logic.
+
+Create a flow with the `flow()` helper and add it to the `flows` array of your `integration()` call.
+
+```typescript
+import { flow } from "@prismatic-io/spectral";
+
+const myFlow = flow({
+  name: "Process Order",
+  stableKey: "process-order",
+  onExecution: async (context, params) => {
+    // Your flow logic here
+    return { data: null };
+  },
+});
+```
+
+## Flow types
+
+<Tabs>
+  <Tab title="Standard flow">
+    A standard flow is triggered by an inbound webhook request or a schedule. It can optionally define a custom `onTrigger` function; if omitted, Prismatic provides a default HTTP trigger.
+
+    ```typescript
+    import { flow } from "@prismatic-io/spectral";
+
+    export const receiveOrderFlow = flow({
+      name: "Receive Order",
+      stableKey: "receive-order",
+      isSynchronous: true,
+      onExecution: async (context, params) => {
+        const body = params.onTrigger.results.body.data as Record<string, unknown>;
+        const orderId = body["orderId"] as string;
+
+        // Process the order
+        console.log(`Processing order ${orderId}`);
+
+        return {
+          data: { received: true, orderId },
+        };
+      },
+    });
+    ```
+  </Tab>
+  <Tab title="Polling flow">
+    A polling flow runs on a schedule and gains access to `context.polling.getState()` and `context.polling.setState()` for persisting state between executions. It requires both `triggerType: "polling"` and a `schedule`, and must define an `onTrigger`.
+
+    ```typescript
+    import { flow } from "@prismatic-io/spectral";
+
+    export const pollNewRecordsFlow = flow({
+      name: "Poll New Records",
+      stableKey: "poll-new-records",
+      triggerType: "polling",
+      schedule: { value: "0 * * * *", timezone: "America/Chicago" },
+      onTrigger: async (context, payload, params) => {
+        const state = await context.polling.getState();
+        const lastSeen = (state as Record<string, unknown>)?.["lastId"] ?? null;
+
+        // Fetch records newer than lastSeen
+        const records = await fetchNewRecords(lastSeen);
+
+        if (records.length > 0) {
+          await context.polling.setState({ lastId: records.at(-1)!.id });
+        }
+
+        return {
+          payload: {
+            ...payload,
+            body: { data: records, contentType: "application/json" },
+          },
+        };
+      },
+      onExecution: async (context, params) => {
+        const records = params.onTrigger.results.body.data as unknown[];
+        console.log(`Processing ${records.length} new records`);
+        return { data: null };
+      },
+    });
+    ```
+
+    <Note>
+      `schedule` is required for polling flows and must be a cron expression or a config variable reference. `onTrigger` is also required for polling flows.
+    </Note>
+  </Tab>
+</Tabs>
+
+## Required fields
+
+<ParamField path="name" type="string" required>
+  The display name for this flow in the Prismatic UI.
+</ParamField>
+
+<ParamField path="stableKey" type="string" required>
+  A permanent, unique identifier for this flow. Changing `name` is safe as long as `stableKey` stays the same. Never reuse a `stableKey` within the same integration.
+</ParamField>
+
+<ParamField path="onExecution" type="(context, params) => Promise<ActionPerformReturn>" required>
+  The main function invoked when this flow runs. Receives `context` (config vars, component actions, logger, etc.) and `params` (trigger payload accessible via `params.onTrigger.results`).
+</ParamField>
+
+## Optional fields
+
+<ParamField path="description" type="string">
+  A human-readable description shown in the Prismatic UI.
+</ParamField>
+
+<ParamField path="triggerType" type="'standard' | 'polling'">
+  Defaults to `standard`. Set to `'polling'` to enable polling context. Requires `schedule` and `onTrigger`.
+</ParamField>
+
+<ParamField path="schedule" type="ValueExpression<string> | ConfigVarExpression">
+  Cron expression or config variable reference for scheduled execution. Required when `triggerType` is `'polling'`. Can include an optional `timezone` field.
+</ParamField>
+
+<ParamField path="isSynchronous" type="boolean">
+  When `true`, the platform waits for `onExecution` to complete and returns its result as the HTTP response body. Defaults to `false`.
+</ParamField>
+
+<ParamField path="isAgentFlow" type="boolean">
+  Marks this flow as an AI agent flow exposed on the integration's MCP server. Defaults to `false`.
+</ParamField>
+
+<ParamField path="onTrigger" type="TriggerReference | TriggerPerformFunction">
+  Custom trigger function or a reference to a component trigger. If omitted on standard flows, Prismatic's default HTTP trigger is used.
+</ParamField>
+
+<ParamField path="retryConfig" type="RetryConfig">
+  Retry policy for the flow. See [RetryConfig](#retryconfig).
+</ParamField>
+
+<ParamField path="queueConfig" type="QueueConfig">
+  Execution queue behavior. See [QueueConfig](#queueconfig).
+</ParamField>
+
+<ParamField path="endpointSecurityType" type="EndpointSecurityType">
+  Security model for this flow's webhook endpoint. Defaults to `'customer_optional'`. See [Endpoint security](#endpoint-security-types).
+</ParamField>
+
+<ParamField path="organizationApiKeys" type="string[]">
+  Static API keys used when `endpointSecurityType` is `'organization'`.
+</ParamField>
+
+<ParamField path="preprocessFlowConfig" type="PreprocessFlowConfig">
+  Marks this flow as the preprocess flow for the integration. Only one flow per integration may set this. See [Endpoint configuration](/code-native/endpoint-config).
+</ParamField>
+
+<ParamField path="errorConfig" type="StepErrorConfig">
+  Default error handling behavior for steps in this flow. See [StepErrorConfig](#steperrorconfig).
+</ParamField>
+
+<ParamField path="schemas" type="Record<string, FlowDefinitionFlowSchema> & { invoke: FlowDefinitionFlowSchema }">
+  JSON Schema definitions for flow inputs and outputs. Used with AI agent flows.
+</ParamField>
+
+## `onTrigger` vs omitting it
+
+For most webhook-driven flows you do not need to define `onTrigger`. The default HTTP trigger:
+
+- Accepts any HTTP method.
+- Parses JSON, form data, and raw bodies automatically.
+- Returns `200 OK` immediately (or the `onExecution` result if `isSynchronous: true`).
+
+Define a custom `onTrigger` when you need to:
+
+- Validate an HMAC signature before execution proceeds.
+- Transform the raw payload before `onExecution` sees it.
+- Return a custom HTTP response regardless of `isSynchronous`.
+- Reference a component trigger (e.g., an OAuth token refresh trigger).
+
+```typescript
+onTrigger: async (context, payload, params) => {
+  const signature = payload.headers["x-hub-signature-256"];
+  verifySignature(signature, payload.rawBody.data);
+
+  return {
+    payload: {
+      ...payload,
+      body: { data: JSON.parse(payload.rawBody.data as string) },
+    },
+  };
+},
+```
+
+## Lifecycle hooks
+
+### `onInstanceDeploy` and `onInstanceDelete`
+
+These optional functions run when a customer deploys or removes an instance of the integration. Use them to register or clean up external resources.
+
+```typescript
+flow({
+  name: "Main Flow",
+  stableKey: "main-flow",
+  onInstanceDeploy: async (context, params) => {
+    // Called once when the instance is activated
+    console.log("Instance deployed for", context.customer.name);
+  },
+  onInstanceDelete: async (context, params) => {
+    // Called once when the instance is deleted
+    console.log("Instance deleted for", context.customer.name);
+  },
+  onExecution: async (context, params) => {
+    return { data: null };
+  },
+});
+```
+
+### `webhookLifecycleHandlers`
+
+Use `webhookLifecycleHandlers` to register and deregister webhooks on a third-party system when the flow's webhook URL is created or destroyed.
+
+```typescript
+flow({
+  name: "Event Listener",
+  stableKey: "event-listener",
+  webhookLifecycleHandlers: {
+    create: async (context, params) => {
+      const webhookUrl = params.onTrigger.results.webhookUrls["Event Listener"];
+      await registerWebhookWithThirdParty(webhookUrl, context.configVars);
+    },
+    delete: async (context, params) => {
+      await removeWebhookFromThirdParty(context.configVars);
+    },
+  },
+  onExecution: async (context, params) => {
+    return { data: null };
+  },
+});
+```
+
+## RetryConfig
+
+Configure automatic retries when a flow execution fails.
+
+<ParamField path="maxAttempts" type="number" required>
+  Maximum number of retry attempts. Must be between 0 and 10.
+</ParamField>
+
+<ParamField path="delayMinutes" type="number" required>
+  Minutes to wait before each retry. Must be between 0 and 60.
+</ParamField>
+
+<ParamField path="usesExponentialBackoff" type="boolean" required>
+  When `true`, the delay doubles with each failed attempt.
+</ParamField>
+
+<ParamField path="uniqueRequestIdField" type="string">
+  Field name in the trigger payload used as a unique request ID. Duplicate executions with the same ID are cancelled before the retry runs.
+</ParamField>
+
+```typescript
+retryConfig: {
+  maxAttempts: 5,
+  delayMinutes: 2,
+  usesExponentialBackoff: true,
+  uniqueRequestIdField: "body.data.requestId",
+},
+```
+
+## QueueConfig
+
+Control how concurrent executions are queued. Choose one of the four variants:
+
+<Tabs>
+  <Tab title="parallel">
+    All incoming requests execute simultaneously with no concurrency cap.
+
+    ```typescript
+    queueConfig: { type: "parallel" }
+    ```
+  </Tab>
+  <Tab title="throttled">
+    Caps concurrent executions to `concurrencyLimit` (2–15). Excess requests queue until a slot is free.
+
+    ```typescript
+    queueConfig: {
+      type: "throttled",
+      concurrencyLimit: 5,
+      dedupeIdField: "body.data.eventId",
+    }
+    ```
+  </Tab>
+  <Tab title="sequential">
+    Executions run one at a time in the order they are received.
+
+    ```typescript
+    queueConfig: {
+      type: "sequential",
+      dedupeIdField: "body.data.eventId",
+    }
+    ```
+  </Tab>
+  <Tab title="standard">
+    Exposes granular options without selecting a named mode.
+
+    ```typescript
+    queueConfig: {
+      usesFifoQueue: true,
+      concurrencyLimit: 3,
+      singletonExecutions: false,
+      dedupeIdField: "body.data.eventId",
+    }
+    ```
+
+    <Note>`singletonExecutions` is only valid for scheduled or polling flows. `usesFifoQueue` is not valid for synchronous or scheduled flows.</Note>
+  </Tab>
+</Tabs>
+
+## StepErrorConfig
+
+Define default error handling at the flow level. Individual steps can override this.
+
+<ParamField path="errorHandlerType" type="'fail' | 'ignore' | 'retry'" required>
+  - `fail` — Abort the execution and mark it failed.
+  - `ignore` — Log the error and continue to the next step.
+  - `retry` — Retry the failing step up to `maxAttempts` times.
+</ParamField>
+
+<ParamField path="maxAttempts" type="number">
+  Maximum retry attempts for a failing step. Must be between 0 and 5. Only relevant when `errorHandlerType` is `'retry'`.
+</ParamField>
+
+<ParamField path="delaySeconds" type="number">
+  Seconds to wait between step retries. Must be between 0 and 60.
+</ParamField>
+
+<ParamField path="usesExponentialBackoff" type="boolean">
+  When `true`, delay doubles with each retry. Defaults to `false`.
+</ParamField>
+
+<ParamField path="ignoreFinalError" type="boolean">
+  When `true`, ignores the error after all retry attempts are exhausted. Defaults to `false`.
+</ParamField>
+
+## Endpoint security types
+
+The `endpointSecurityType` field controls what callers must provide when invoking a flow's webhook endpoint.
+
+| Value | Behavior |
+|---|---|
+| `unsecured` | No authentication required. Any caller can invoke the endpoint. |
+| `customer_optional` | Customers may optionally provide an API key. Default. |
+| `customer_required` | Callers must supply a valid customer-specific API key. |
+| `organization` | Callers must supply one of the keys listed in `organizationApiKeys`. |
+
+## Accessing trigger data
+
+Inside `onExecution`, the trigger payload is available at `params.onTrigger.results`. The `TriggerPayload` type exposes:
+
+| Field | Type | Description |
+|---|---|---|
+| `headers` | `Record<string, string>` | HTTP headers from the inbound request |
+| `queryParameters` | `Record<string, string>` | URL query string parameters |
+| `rawBody.data` | `unknown` | Unparsed request body |
+| `body.data` | `unknown` | Parsed request body |
+| `pathFragment` | `string` | Extended path info after the webhook URL |
+| `webhookUrls` | `Record<string, string>` | Webhook URLs for each flow in this instance |
+| `webhookApiKeys` | `Record<string, string[]>` | API keys per flow |
+| `invokeUrl` | `string` | The URL used for this invocation |
+| `customer` | `CustomerAttributes` | Customer details |
+| `instance` | `InstanceAttributes` | Instance details |
+| `flow` | `FlowAttributes` | Flow details |
+| `startedAt` | `string` | UTC timestamp when execution started |
+
+## Complete example
+
+```typescript
+import { flow } from "@prismatic-io/spectral";
+
+export const processOrderFlow = flow({
+  name: "Process Order",
+  stableKey: "process-order",
+  description: "Receives an order webhook and creates a fulfillment record",
+  isSynchronous: true,
+  endpointSecurityType: "customer_required",
+  retryConfig: {
+    maxAttempts: 3,
+    delayMinutes: 5,
+    usesExponentialBackoff: true,
+  },
+  queueConfig: {
+    type: "sequential",
+  },
+  onTrigger: async (context, payload, params) => {
+    // Validate HMAC signature
+    const sig = payload.headers["x-signature"];
+    if (!sig) throw new Error("Missing signature");
+    return { payload };
+  },
+  onInstanceDeploy: async (context, params) => {
+    console.log("Deployed for customer", context.customer.name);
+  },
+  onInstanceDelete: async (context, params) => {
+    console.log("Instance removed for", context.customer.name);
+  },
+  onExecution: async (context, params) => {
+    const payload = params.onTrigger.results;
+    const order = payload.body.data as { orderId: string; items: unknown[] };
+
+    // Use a config var for the target system URL
+    const apiUrl = context.configVars["API Base URL"];
+    console.log(`Sending order ${order.orderId} to ${apiUrl}`);
+
+    return {
+      data: { fulfilled: true, orderId: order.orderId },
+    };
+  },
+});
+```

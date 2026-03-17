@@ -1,0 +1,273 @@
+---
+title: dataSource
+description: Define a data source that fetches dynamic data from an external API to populate config wizard inputs.
+---
+
+The `dataSource` function creates a data source object that fetches data from an external API and returns it in a format suitable for rendering in an integration config wizard. Data sources power dynamic dropdowns, object selectors, field mappers, and JSON forms.
+
+## Function signature
+
+```typescript
+function dataSource<
+  TInputs extends Inputs,
+  TConfigVars extends ConfigVarResultCollection,
+  TDataSourceType extends DataSourceType,
+>(
+  definition: DataSourceDefinition<TInputs, TConfigVars, TDataSourceType>
+): DataSourceDefinition<TInputs, TConfigVars, TDataSourceType>
+```
+
+## Parameters
+
+<ParamField path="definition" type="DataSourceDefinition" required>
+  An object describing the data source. See fields below.
+</ParamField>
+
+### `DataSourceDefinition` fields
+
+<ParamField path="definition.display" type="ActionDisplayDefinition" required>
+  Controls how the data source appears in the Prismatic UI.
+
+  <Expandable title="ActionDisplayDefinition fields">
+    <ParamField path="display.label" type="string" required>
+      Human-readable name.
+    </ParamField>
+    <ParamField path="display.description" type="string" required>
+      Describes what data this source provides.
+    </ParamField>
+    <ParamField path="display.directions" type="string">
+      Additional guidance for the integration builder.
+    </ParamField>
+    <ParamField path="display.important" type="boolean">
+      Highlights this data source as commonly used. Use sparingly.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField path="definition.dataSourceType" type="DataSourceType" required>
+  The type of UI widget used to render the data. Must be one of the values below.
+
+  <Expandable title="DataSourceType values">
+    | Value | Result type | Description |
+    |---|---|---|
+    | `"picklist"` | `string[] \| Element[]` | A dropdown of selectable string values |
+    | `"string"` | `string` | A plain string value |
+    | `"date"` | `string` | A date string |
+    | `"timestamp"` | `string` | A datetime timestamp string |
+    | `"boolean"` | `boolean` | A boolean value |
+    | `"number"` | `number` | A numeric value |
+    | `"code"` | `string` | A code editor widget |
+    | `"schedule"` | `{ value: string }` | A schedule expression |
+    | `"objectSelection"` | `ObjectSelection` | Multi-object selector with optional field selection |
+    | `"objectFieldMap"` | `ObjectFieldMap` | Field mapping between two object schemas |
+    | `"jsonForm"` | `JSONForm` | A dynamic form driven by a JSON Schema and UI schema |
+  </Expandable>
+</ParamField>
+
+<ParamField path="definition.perform" type="DataSourcePerformFunction" required>
+  The async function that fetches data and returns it in the format required by `dataSourceType`.
+
+  ```typescript
+  perform: (
+    context: DataSourceContext<TConfigVars>,
+    params: ActionInputParameters<TInputs>
+  ) => Promise<DataSourceResult<TDataSourceType>>
+  ```
+
+  <Expandable title="DataSourceContext fields">
+    <ParamField path="context.logger" type="ActionLogger">
+      Structured logger: `trace`, `debug`, `info`, `log`, `warn`, `error`, `metric`.
+    </ParamField>
+    <ParamField path="context.customer" type="CustomerAttributes">
+      Attributes of the customer: `id`, `name`, `externalId`.
+    </ParamField>
+    <ParamField path="context.instance" type="InstanceAttributes">
+      Attributes of the instance: `id`, `name`.
+    </ParamField>
+    <ParamField path="context.user" type="UserAttributes">
+      Attributes of the user for User Level Configurations: `id`, `name`, `email`, `externalId`.
+    </ParamField>
+    <ParamField path="context.configVars" type="TConfigVars">
+      Key/value collection of config variables.
+    </ParamField>
+  </Expandable>
+
+  <Note>
+    `DataSourceContext` is a subset of `ActionContext`. It does not include `instanceState`, `crossFlowState`, `executionState`, `integrationState`, `stepId`, `executionId`, `webhookUrls`, or `invokeFlow`.
+  </Note>
+</ParamField>
+
+<ParamField path="definition.inputs" type="TInputs" required>
+  A record of input field definitions. See [`input`](/api-reference/input).
+</ParamField>
+
+<ParamField path="definition.examplePayload" type="Awaited<ReturnType<perform>>">
+  Example return value for UI preview.
+</ParamField>
+
+<ParamField path="definition.detailDataSource" type="string">
+  The key of another data source in the same component that provides additional details about the content of this data source (e.g., example field values for an `objectFieldMap`).
+</ParamField>
+
+## Return type
+
+The `perform` function must return a `Promise<DataSourceResult<TDataSourceType>>`:
+
+<ResponseField name="result" type="DataSourceResultType" required>
+  The data returned by the data source. The type depends on `dataSourceType`.
+</ResponseField>
+
+<ResponseField name="supplementalData" type="{ data: unknown; contentType: string }">
+  Optional extra data available during config wizard page loading. Not passed to action steps.
+</ResponseField>
+
+## Examples
+
+<Tabs>
+  <Tab title="picklist">
+    ```typescript
+    import { dataSource, input } from "@prismatic-io/spectral";
+
+    export const listProjects = dataSource({
+      display: {
+        label: "List Projects",
+        description: "Fetch available projects for selection",
+      },
+      dataSourceType: "picklist",
+      inputs: {
+        connection: input({ label: "Connection", type: "connection", required: true }),
+      },
+      perform: async (context, params) => {
+        const apiKey = params.connection.fields.apiKey as string;
+        const projects = await fetchProjects(apiKey);
+
+        return {
+          result: projects.map((p) => ({ key: p.id, label: p.name })),
+        };
+      },
+      examplePayload: {
+        result: [
+          { key: "proj_1", label: "Alpha" },
+          { key: "proj_2", label: "Beta" },
+        ],
+      },
+    });
+
+    async function fetchProjects(apiKey: string) {
+      return [{ id: "proj_1", name: "Alpha" }, { id: "proj_2", name: "Beta" }];
+    }
+    ```
+  </Tab>
+  <Tab title="objectSelection">
+    ```typescript
+    import { dataSource, input } from "@prismatic-io/spectral";
+
+    export const selectObjects = dataSource({
+      display: {
+        label: "Select Objects",
+        description: "Choose which objects and fields to sync",
+      },
+      dataSourceType: "objectSelection",
+      inputs: {
+        connection: input({ label: "Connection", type: "connection", required: true }),
+      },
+      perform: async (context, params) => {
+        return {
+          result: [
+            {
+              object: { key: "contacts", label: "Contacts" },
+              fields: [
+                { key: "id", label: "ID" },
+                { key: "email", label: "Email" },
+                { key: "name", label: "Name" },
+              ],
+              defaultSelected: true,
+            },
+          ],
+        };
+      },
+    });
+    ```
+  </Tab>
+  <Tab title="objectFieldMap">
+    ```typescript
+    import { dataSource, input } from "@prismatic-io/spectral";
+
+    export const mapFields = dataSource({
+      display: {
+        label: "Map Fields",
+        description: "Map source fields to destination fields",
+      },
+      dataSourceType: "objectFieldMap",
+      inputs: {
+        connection: input({ label: "Connection", type: "connection", required: true }),
+      },
+      perform: async (context, params) => {
+        return {
+          result: {
+            fields: [
+              {
+                field: { key: "firstName", label: "First Name" },
+                mappedObject: { key: "contacts", label: "Contacts" },
+                mappedField: { key: "first_name", label: "First Name" },
+              },
+            ],
+            options: [
+              {
+                object: { key: "contacts", label: "Contacts" },
+                fields: [
+                  { key: "first_name", label: "First Name" },
+                  { key: "last_name", label: "Last Name" },
+                ],
+              },
+            ],
+          },
+        };
+      },
+    });
+    ```
+  </Tab>
+  <Tab title="jsonForm">
+    ```typescript
+    import { dataSource, input } from "@prismatic-io/spectral";
+
+    export const configForm = dataSource({
+      display: {
+        label: "Configuration Form",
+        description: "Dynamic form for advanced configuration",
+      },
+      dataSourceType: "jsonForm",
+      inputs: {
+        connection: input({ label: "Connection", type: "connection", required: true }),
+      },
+      perform: async (context, params) => {
+        return {
+          result: {
+            schema: {
+              type: "object",
+              properties: {
+                region: { type: "string", enum: ["us-east-1", "eu-west-1"] },
+                batchSize: { type: "number", minimum: 1, maximum: 1000 },
+              },
+            },
+            uiSchema: {
+              type: "VerticalLayout",
+              elements: [
+                { type: "Control", scope: "#/properties/region" },
+                { type: "Control", scope: "#/properties/batchSize" },
+              ],
+            },
+            data: { region: "us-east-1", batchSize: 100 },
+          },
+        };
+      },
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Related
+
+- [`input`](/api-reference/input) — Define inputs for a data source
+- [`connection`](/api-reference/connection) — Define the connection passed to `perform`
+- [`component`](/api-reference/component) — Register data sources in a component

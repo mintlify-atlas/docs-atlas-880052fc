@@ -1,0 +1,149 @@
+---
+title: 'loggerMock'
+description: 'Create a mock ActionLogger with jest/vitest spy functions for asserting log output in unit tests.'
+---
+
+## Import
+
+```typescript
+import { loggerMock } from "@prismatic-io/spectral/dist/testing";
+```
+
+## Signature
+
+```typescript
+export const loggerMock = (): ActionLogger
+```
+
+`loggerMock` creates an `ActionLogger` where each log-level method is a jest/vitest spy backed by the matching `console` method. The `metric` method is a plain `console.log` call (not a spy).
+
+<Note>
+  You rarely need to call `loggerMock` directly. Both `invoke` and `invokeTrigger` create one automatically and return it as `loggerMock` in the result. Call `loggerMock` directly only when you need to inject a logger into a context you build yourself.
+</Note>
+
+## Return value
+
+Returns an `ActionLogger` object.
+
+<ResponseField name="trace" type="spy (console.trace)" required>
+  Spy wrapping `console.trace`.
+</ResponseField>
+
+<ResponseField name="debug" type="spy (console.debug)" required>
+  Spy wrapping `console.debug`.
+</ResponseField>
+
+<ResponseField name="info" type="spy (console.info)" required>
+  Spy wrapping `console.info`.
+</ResponseField>
+
+<ResponseField name="log" type="spy (console.log)" required>
+  Spy wrapping `console.log`.
+</ResponseField>
+
+<ResponseField name="warn" type="spy (console.warn)" required>
+  Spy wrapping `console.warn`.
+</ResponseField>
+
+<ResponseField name="error" type="spy (console.error)" required>
+  Spy wrapping `console.error`.
+</ResponseField>
+
+<ResponseField name="metric" type="function (console.log)">
+  Plain `console.log` call. Not a spy — cannot be asserted against.
+</ResponseField>
+
+## Implementation
+
+```typescript
+import { spyOn } from "jest-mock";
+
+export const loggerMock = (): ActionLogger => ({
+  metric: console.log as ActionLoggerFunction,
+  trace: spyOn(console, "trace") as unknown as ActionLoggerFunction,
+  debug: spyOn(console, "debug") as unknown as ActionLoggerFunction,
+  info: spyOn(console, "info") as unknown as ActionLoggerFunction,
+  log: spyOn(console, "log") as unknown as ActionLoggerFunction,
+  warn: spyOn(console, "warn") as unknown as ActionLoggerFunction,
+  error: spyOn(console, "error") as unknown as ActionLoggerFunction,
+});
+```
+
+## Examples
+
+<CodeGroup>
+
+```typescript Asserting log calls from invoke
+import { action, input } from "@prismatic-io/spectral";
+import { invoke } from "@prismatic-io/spectral/dist/testing";
+import { describe, expect, it } from "vitest";
+
+const myAction = action({
+  display: { label: "My Action", description: "" },
+  inputs: {
+    name: input({ label: "Name", type: "string" }),
+  },
+  perform: async (context, { name }) => {
+    context.logger.info(`Processing request for ${name}`);
+    context.logger.warn("This is a warning");
+    return { data: `Hello, ${name}` };
+  },
+});
+
+describe("myAction", () => {
+  it("logs the correct messages", async () => {
+    const { loggerMock } = await invoke(myAction, { name: "Alice" });
+
+    expect(loggerMock.info).toHaveBeenCalledWith("Processing request for Alice");
+    expect(loggerMock.warn).toHaveBeenCalledWith("This is a warning");
+    expect(loggerMock.error).not.toHaveBeenCalled();
+  });
+});
+```
+
+```typescript Using loggerMock directly in a custom context
+import { loggerMock, invoke } from "@prismatic-io/spectral/dist/testing";
+
+const logger = loggerMock();
+
+// Inject the logger into the context
+const { result } = await invoke(myAction, { inputKey: "value" }, { logger });
+
+// Now assert against the same logger instance
+expect(logger.info).toHaveBeenCalled();
+```
+
+```typescript Asserting call count and arguments
+import { invoke } from "@prismatic-io/spectral/dist/testing";
+
+const { loggerMock } = await invoke(processItemsAction, { items: ["a", "b", "c"] });
+
+// Assert on number of calls
+expect(loggerMock.debug).toHaveBeenCalledTimes(3);
+
+// Assert on specific call arguments
+expect(loggerMock.debug).toHaveBeenNthCalledWith(1, "Processing item: a");
+expect(loggerMock.debug).toHaveBeenNthCalledWith(2, "Processing item: b");
+```
+
+```typescript Checking that an error was logged
+import { invoke } from "@prismatic-io/spectral/dist/testing";
+
+const { loggerMock } = await invoke(riskyAction, { input: "bad-value" });
+
+expect(loggerMock.error).toHaveBeenCalledWith(
+  expect.stringContaining("bad-value"),
+);
+```
+
+</CodeGroup>
+
+<Tip>
+  The spy functions are created with `jest-mock`'s `spyOn`, which is compatible with both Jest and Vitest. Use any standard `expect(spy).toHaveBeenCalled*` matcher.
+</Tip>
+
+## Related
+
+- [invoke](/api-reference/testing/invoke) — returns `loggerMock` in its result
+- [invokeTrigger](/api-reference/testing/invoke-trigger) — returns `loggerMock` in its result
+- [invokeFlow](/api-reference/testing/invoke-flow) — returns `loggerMock` in its result
